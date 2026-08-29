@@ -1,0 +1,6 @@
+{
+  "name": "WA Reach Tools",
+  "description": "A modern liquid glassmorphism WhatsApp Channel reach booster tool with live global chat, daily limit tracker, premium upgrade codes, and owner dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "type": "object",
+      "description": "User profile with boost statistics, membership tier, and access limits",
+      "properties": {
+        "username": { "type": "string", "description": "Unique username identifier" },
+        "role": { "type": "string", "enum": ["free", "premium", "admin", "blocked"], "description": "User membership tier" },
+        "avatarColor": { "type": "string", "description": "Hex color code for user avatar" },
+        "totalBoosts": { "type": "number", "description": "Total number of channel boosts executed" },
+        "customDailyLimit": { "type": "number", "description": "Custom daily boost limit" },
+        "isBlocked": { "type": "boolean", "description": "Whether user is banned from services" },
+        "blockedReason": { "type": "string", "description": "Reason for suspension if blocked" },
+        "premiumExpiresAt": { "type": "number", "description": "Epoch timestamp of premium VIP expiration" },
+        "createdAt": { "type": "number", "description": "Account registration timestamp" },
+        "lastActive": { "type": "number", "description": "Last activity timestamp" }
+      },
+      "required": ["username", "role", "totalBoosts", "createdAt"]
+    },
+    "ReachLog": {
+      "title": "ReachLog",
+      "type": "object",
+      "description": "Log of executed WhatsApp channel reach boosts",
+      "properties": {
+        "channel": { "type": "string", "description": "Channel URL or unique target ID" },
+        "username": { "type": "string", "description": "Username who initiated the boost" },
+        "timestamp": { "type": "number", "description": "Execution timestamp" },
+        "status": { "type": "string", "enum": ["success", "failed"], "description": "Boost execution outcome" },
+        "message": { "type": "string", "description": "API response or status message" }
+      },
+      "required": ["channel", "timestamp", "status"]
+    },
+    "PremiumCode": {
+      "title": "PremiumCode",
+      "type": "object",
+      "description": "Voucher redeem codes for VIP subscription",
+      "properties": {
+        "code": { "type": "string", "description": "Alphanumeric redeem code" },
+        "voucherType": { "type": "string", "enum": ["vip_upgrade", "quota_boost", "unlimited_pass"], "description": "Voucher benefit type" },
+        "durationDays": { "type": "number", "description": "Number of VIP days unlocked" },
+        "bonusQuota": { "type": "number", "description": "Bonus reach quota added" },
+        "maxUses": { "type": "number", "description": "Maximum redemption capacity" },
+        "usedCount": { "type": "number", "description": "Number of times redeemed" },
+        "isOneTimeUse": { "type": "boolean", "description": "Whether this code can only be used once" },
+        "expiresAt": { "type": "number", "description": "Expiration epoch timestamp" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "note": { "type": "string", "description": "Admin note" },
+        "active": { "type": "boolean", "description": "Whether the code is active" },
+        "redeemedBy": { "type": "array", "description": "Usernames who claimed this voucher" }
+      },
+      "required": ["code", "durationDays", "maxUses", "usedCount", "active"]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "type": "object",
+      "description": "Log of administrative actions performed on the platform",
+      "properties": {
+        "action": { "type": "string", "description": "Type of admin action (e.g. ROLE_CHANGE, VOUCHER_CREATE)" },
+        "target": { "type": "string", "description": "Target entity identifier" },
+        "adminUsername": { "type": "string", "description": "Admin username who executed the action" },
+        "details": { "type": "string", "description": "Human readable action summary" },
+        "timestamp": { "type": "number", "description": "Epoch timestamp of the action" }
+      },
+      "required": ["action", "target", "adminUsername", "timestamp"]
+    },
+    "TopBooster": {
+      "title": "TopBooster",
+      "type": "object",
+      "description": "Leaderboard item tracking top channel boosters",
+      "properties": {
+        "username": { "type": "string", "description": "Booster username" },
+        "totalBoosts": { "type": "number", "description": "Cumulative total reach boosts" },
+        "role": { "type": "string", "enum": ["free", "premium", "admin", "blocked"], "description": "User role tier" },
+        "avatarColor": { "type": "string", "description": "Hex avatar color" },
+        "lastBoostAt": { "type": "number", "description": "Epoch timestamp of latest boost" }
+      },
+      "required": ["username", "totalBoosts"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "type": "object",
+      "description": "Real-time global chat message",
+      "properties": {
+        "sender": { "type": "string", "description": "Sender username or nickname" },
+        "text": { "type": "string", "description": "Content of the chat message" },
+        "timestamp": { "type": "number", "description": "Epoch timestamp when sent" },
+        "role": { "type": "string", "enum": ["free", "premium", "admin", "blocked"], "description": "Sender user role" },
+        "avatarColor": { "type": "string", "description": "Avatar hex color" },
+        "isSystem": { "type": "boolean", "description": "Whether this is an official system broadcast" }
+      },
+      "required": ["sender", "text", "timestamp", "role"]
+    },
+    "ReachEngineSetting": {
+      "title": "ReachEngineSetting",
+      "type": "object",
+      "description": "Configuration parameters for WhatsApp reach boost engine and maintenance",
+      "properties": {
+        "boostSpeedMode": { "type": "string", "enum": ["turbo", "safe", "extreme", "smart_flow"], "description": "Dispatch speed mode" },
+        "globalCooldownSeconds": { "type": "number", "description": "Cooldown between requests" },
+        "isEmergencyPaused": { "type": "boolean", "description": "Emergency kill switch state" },
+        "maintenanceNotice": { "type": "string", "description": "Broadcast maintenance notice" },
+        "blacklistChannels": { "type": "array", "description": "List of forbidden channel identifiers" }
+      },
+      "required": ["boostSpeedMode", "globalCooldownSeconds", "isEmergencyPaused"]
+    },
+    "CustomRole": {
+      "title": "CustomRole",
+      "type": "object",
+      "description": "Customizable user role preset with duration, daily limit, and base tier mapping",
+      "properties": {
+        "id": { "type": "string", "description": "Unique role identifier" },
+        "name": { "type": "string", "description": "Custom role display name" },
+        "durationDays": { "type": "number", "description": "Validity period in days" },
+        "dailyLimit": { "type": "number", "description": "Daily reach boost quota limit" },
+        "baseTier": { "type": "string", "enum": ["user", "premium", "blocked"], "description": "Equivalent base system permission tier" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" },
+        "createdBy": { "type": "string", "description": "Admin username who created this custom role" }
+      },
+      "required": ["name", "durationDays", "dailyLimit", "baseTier", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents and state"
+    },
+    "/custom_roles/{roleId}": {
+      "schema": "CustomRole",
+      "description": "Preset custom roles configurable by Admin"
+    },
+    "/reach_logs/{logId}": {
+      "schema": "ReachLog",
+      "description": "Real-time execution log of channel boosts"
+    },
+    "/premium_codes/{codeId}": {
+      "schema": "PremiumCode",
+      "description": "VIP voucher redemption codes"
+    },
+    "/top_boosters/{boosterId}": {
+      "schema": "TopBooster",
+      "description": "Leaderboard aggregation cache of top channel boosters"
+    },
+    "/chat_messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Real-time community global chat messages"
+    },
+    "/admin_audit_logs/{logId}": {
+      "schema": "AdminAuditLog",
+      "description": "Administrative actions audit trail"
+    },
+    "/system_settings/{settingId}": {
+      "schema": "ReachEngineSetting",
+      "description": "System settings and reach engine configuration"
+    },
+    "/system_settings/{settingId}/auditLogs/{logId}": {
+      "schema": "AdminAuditLog",
+      "description": "Sub-collection of administrative audit records"
+    }
+  }
+}

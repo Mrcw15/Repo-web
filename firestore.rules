@@ -1,0 +1,130 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper validation functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidReachLog(data) {
+      return data.channel is string && data.channel.size() <= 500 &&
+             data.timestamp is number &&
+             data.status in ['success', 'failed'] &&
+             (!('message' in data) || (data.message is string && data.message.size() <= 500)) &&
+             (!('username' in data) || (data.username is string && data.username.size() <= 100));
+    }
+
+    function isValidTopBooster(data) {
+      return data.username is string && data.username.size() <= 100 &&
+             data.totalBoosts is number && data.totalBoosts >= 0 &&
+             (!('role' in data) || data.role in ['free', 'premium', 'admin', 'blocked']) &&
+             (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 32));
+    }
+
+    function isValidChatMessage(data) {
+      return data.sender is string && data.sender.size() > 0 && data.sender.size() <= 100 &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 500 &&
+             data.timestamp is number &&
+             (!('role' in data) || data.role in ['free', 'premium', 'admin', 'blocked']) &&
+             (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 32));
+    }
+
+    function isValidUserProfile(data) {
+      return data.username is string && data.username.size() <= 100 &&
+             (!('role' in data) || data.role in ['free', 'premium', 'admin', 'blocked']) &&
+             (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 32)) &&
+             (!('totalBoosts' in data) || (data.totalBoosts is number && data.totalBoosts >= 0)) &&
+             (!('customDailyLimit' in data) || data.customDailyLimit == null || (data.customDailyLimit is number && data.customDailyLimit >= 0)) &&
+             (!('isBlocked' in data) || data.isBlocked is bool);
+    }
+
+    // Health and test connection document
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // System and Reach Engine settings (boost mode, blacklist channels, emergency switch)
+    match /system_settings/{settingId} {
+      allow read, write: if true;
+
+      // Sub-collection for admin audit logs
+      match /auditLogs/{logId} {
+        allow read: if true;
+        allow create: if request.resource.data.action is string &&
+                         request.resource.data.adminUsername is string &&
+                         request.resource.data.timestamp is number;
+        allow update, delete: if false;
+      }
+    }
+
+    // Direct audit logs collection alias
+    match /admin_audit_logs/{logId} {
+      allow read: if true;
+      allow create: if request.resource.data.action is string &&
+                       request.resource.data.adminUsername is string &&
+                       request.resource.data.timestamp is number;
+      allow update, delete: if false;
+    }
+
+    // Custom Roles management collection (Presets for custom role assignments)
+    match /custom_roles/{roleId} {
+      allow read, write: if true;
+    }
+
+    // User profile documents (protected from arbitrary schema abuse, allow delete for admin management)
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if isValidUserProfile(request.resource.data);
+      allow delete: if true;
+    }
+
+    // User boost history audit stream (Write-once, tamper-proof, no delete)
+    match /reach_logs/{logId} {
+      allow read: if true;
+      allow create: if isValidReachLog(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Premium voucher codes
+    match /premium_codes/{codeId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.code is string && 
+                               request.resource.data.code.size() <= 64 &&
+                               request.resource.data.durationDays is number &&
+                               request.resource.data.maxUses is number;
+      allow delete: if true;
+    }
+
+    // Top boosters leaderboard cache (allow delete for admin moderation)
+    match /top_boosters/{boosterId} {
+      allow read: if true;
+      allow create, update: if isValidTopBooster(request.resource.data);
+      allow delete: if true;
+    }
+
+    // Real-time Global Community Chat messages (Public Read access, validated create, no update/delete)
+    match /chat_messages/{messageId} {
+      allow read: if true;
+      allow create: if isValidChatMessage(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Chat collection alias
+    match /chat/{messageId} {
+      allow read: if true;
+      allow create: if isValidChatMessage(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Diagnostic connection tests collection (Used by OwnerPage connection tester)
+    match /connection_tests/{docId} {
+      allow read, write: if true;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
