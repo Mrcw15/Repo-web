@@ -245,11 +245,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
       // 2. Parallel auxiliary sync from Server API if available
       try {
         const headers = getAuthHeaders();
-        const [statsRes, codesRes, usersRes, engineRes, customRolesRes] = await Promise.all([
+        const [statsRes, codesRes, usersRes, customRolesRes] = await Promise.all([
           fetch('/api/admin/stats', { headers }),
           fetch('/api/admin/codes', { headers }),
           fetch('/api/admin/users', { headers }),
-          fetch('/api/admin/reach-engine', { headers }),
           fetch('/api/admin/custom-roles', { headers }),
         ]);
 
@@ -301,11 +300,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
               return Array.from(map.values());
             });
           }
-        }
-
-        if (engineRes.ok) {
-          const eData = await engineRes.json();
-          if (eData.settings) setReachEngine(eData.settings);
         }
 
         if (customRolesRes.ok) {
