@@ -20,7 +20,7 @@ import {
   ShieldAlert,
   HelpCircle
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { soundFx } from '../utils/audio';
 import { 
   getDailyLimitState, 
@@ -78,6 +78,7 @@ export const ReachPage: React.FC<ReachPageProps> = ({
   } | null>(null);
 
   const [limitRefreshKey, setLimitRefreshKey] = useState(0);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const isBlocked = userProfile.role === 'blocked' || !!userProfile.isBlocked || userProfile.customDailyLimit === 0;
   const limitState = getDailyLimitState(userProfile.role, userProfile.customDailyLimit, isBlocked);
   const isPremium = (userProfile.role === 'premium' || userProfile.role === 'admin') && !isBlocked;
@@ -211,6 +212,9 @@ export const ReachPage: React.FC<ReachPageProps> = ({
         if (res.ok) {
           data = await res.json();
           isSuccess = !!data.success;
+          if (!isSuccess) {
+            serverError = data?.message || 'Gagal mengirim reaksi emoji ke channel.';
+          }
         } else {
           try {
             const errJson = await res.json();
@@ -270,6 +274,7 @@ export const ReachPage: React.FC<ReachPageProps> = ({
         emojis: selectedEmojis,
         data: data?.data || { mode: 'Direct Gateway', channel: targetChannel },
       });
+      setShowSuccessModal(true);
 
       onShowToast('success', 'Reach Terkirim!', 'Sukses mengeksekusi reach booster ke channel target!');
     } catch {
@@ -401,7 +406,7 @@ export const ReachPage: React.FC<ReachPageProps> = ({
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="liquid-glass-rose rounded-2xl p-4 sm:p-5 border-2 border-rose-500/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xl shadow-rose-950/40 bg-rose-950/40"
+              className="liquid-glass-rose rounded-2xl p-4 sm:p-5 border-2 border-rose-500/60 flex flex-col items-start gap-4 shadow-xl shadow-rose-950/40 bg-rose-950/40"
             >
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-rose-500/30 text-rose-300 flex items-center justify-center shrink-0 border border-rose-500/50 shadow-inner">
@@ -416,6 +421,12 @@ export const ReachPage: React.FC<ReachPageProps> = ({
                   </p>
                 </div>
               </div>
+              <button
+                onClick={() => onNavigateTab('appeal')}
+                className="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+              >
+                Ajukan Permintaan Pembukaan Blokir
+              </button>
             </motion.div>
           )}
 
@@ -469,10 +480,6 @@ export const ReachPage: React.FC<ReachPageProps> = ({
                     Masukkan tautan channel publik WhatsApp
                   </span>
                 </div>
-              </div>
-
-              <div className="text-[11px] font-bold text-slate-300 bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-700/50">
-                Protokol v2.4
               </div>
             </div>
 
@@ -530,13 +537,14 @@ export const ReachPage: React.FC<ReachPageProps> = ({
                 </div>
               </div>
 
-              {/* Field: Pemilihan Emoji Reaksi (Maksimal 4) */}
+              {/* Field: Pemilihan Emoji Reaksi */}
               <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80">
                 <EmojiSelector
                   selectedEmojis={selectedEmojis}
                   onChange={setSelectedEmojis}
-                  maxSelect={4}
+                  maxSelect={10}
                   disabled={isLoading}
+                  onShowToast={onShowToast}
                 />
               </div>
 
@@ -570,42 +578,32 @@ export const ReachPage: React.FC<ReachPageProps> = ({
                 </motion.button>
               </div>
 
-              <div className="liquid-glass rounded-2xl p-3.5 border border-white/10 text-xs text-slate-300 flex items-center gap-2.5">
+              <motion.div className="liquid-glass rounded-2xl p-3.5 border border-white/10 text-xs text-slate-300 flex items-center gap-2.5" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
                 <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>
                   Sistem beroperasi via secure REST API proxy. Channel publik Anda aman 100% tanpa risiko banned dan tidak memerlukan izin akses admin.
                 </span>
-              </div>
+              </motion.div>
             </form>
           </motion.div>
 
           {/* Last Result Banner */}
-          {lastResult && (
+          {lastResult && !lastResult.success && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`rounded-3xl p-4 sm:p-5 shadow-lg border ${
-                lastResult.success
-                  ? 'liquid-glass-emerald border-emerald-500/40'
-                  : 'liquid-glass-rose border-rose-500/40'
-              } flex items-start gap-3.5`}
+              className={`rounded-3xl p-4 sm:p-5 shadow-lg border liquid-glass-rose border-rose-500/40 flex items-start gap-3.5`}
             >
-              {lastResult.success ? (
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
-                  <CheckCircle2 className="w-5 h-5" />
-                </div>
-              ) : (
-                <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 mt-0.5">
-                  <XCircle className="w-5 h-5" />
-                </div>
-              )}
+              <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 mt-0.5">
+                <XCircle className="w-5 h-5" />
+              </div>
               <div className="flex-1 space-y-1 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-extrabold text-white text-sm">
-                    {lastResult.success ? 'Boost Berhasil Dikirim' : 'Proses Gagal'}
+                    Proses Gagal
                   </span>
-                  <span className="font-mono text-xs font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-lg">
-                    SUKSES
+                  <span className="font-mono text-xs font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-lg">
+                    GAGAL
                   </span>
                 </div>
                 <p className="text-slate-200 leading-snug font-medium">
@@ -615,14 +613,6 @@ export const ReachPage: React.FC<ReachPageProps> = ({
                   <p className="text-[11px] font-mono text-slate-400 truncate">
                     Target: {lastResult.channel}
                   </p>
-                  {lastResult.emojis && lastResult.emojis.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Reaksi:</span>
-                      <span className="text-sm font-normal tracking-wide bg-slate-900/60 px-2 py-0.5 rounded-lg border border-white/10">
-                        {lastResult.emojis.join(' ')}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
             </motion.div>
@@ -718,6 +708,57 @@ export const ReachPage: React.FC<ReachPageProps> = ({
           </motion.div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showSuccessModal && lastResult && lastResult.success && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setShowSuccessModal(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative w-full max-w-sm liquid-glass-emerald border border-emerald-500/40 p-6 rounded-[2rem] shadow-2xl overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-400 to-cyan-500" />
+              
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <CheckCircle2 className="w-10 h-10" />
+                </div>
+                
+                <div className="space-y-1.5">
+                  <h3 className="text-xl font-black text-white tracking-tight">
+                    Boost Diproses!
+                  </h3>
+                  <p className="text-sm font-medium text-emerald-100/90 leading-relaxed">
+                    Request boost telah berhasil masuk ke antrean server. Reaksi <span className="font-bold text-white bg-black/30 px-1.5 py-0.5 rounded">{lastResult.emojis?.join('') || '🔥'}</span> akan segera dikirimkan ke target postingan Anda.
+                  </p>
+                </div>
+
+                <div className="w-full bg-black/20 rounded-xl p-3 border border-emerald-500/20 text-left mt-2">
+                  <div className="text-[10px] uppercase font-bold text-emerald-500/70 mb-1">Target Postingan</div>
+                  <div className="text-xs font-mono text-emerald-50 truncate">
+                    {lastResult.channel}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowSuccessModal(false)}
+                  className="w-full py-3.5 mt-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-extrabold rounded-xl transition-all active:scale-95 shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+                >
+                  Tutup & Lanjutkan
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -118,9 +118,28 @@
         "createdBy": { "type": "string", "description": "Admin username who created this custom role" }
       },
       "required": ["name", "durationDays", "dailyLimit", "baseTier", "createdAt"]
+    },
+    "AppealRequest": {
+      "title": "AppealRequest",
+      "type": "object",
+      "description": "User appeal request for unblocking account",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "username": { "type": "string", "description": "Username of the blocked user" },
+        "reason": { "type": "string", "description": "Reason for appeal" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"], "description": "Appeal status" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" },
+        "updatedAt": { "type": "number", "description": "Update timestamp" },
+        "adminNote": { "type": "string", "description": "Note from admin" }
+      },
+      "required": ["username", "reason", "status", "createdAt"]
     }
   },
   "firestore": {
+    "/appeal_requests/{appealId}": {
+      "schema": "AppealRequest",
+      "description": "User appeal requests"
+    },
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "User profile documents and state"

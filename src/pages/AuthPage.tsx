@@ -21,9 +21,11 @@ import {
   saveLocalAccount, 
   type UserProfile,
   type LocalAccount,
+  type UserRole,
   getRandomColor
 } from '../utils/storage';
-import { syncUserProfileToFirebase } from '../services/firebaseService';
+import { syncUserProfileToFirebase, fetchUserProfileFromFirestore } from '../services/firebaseService';
+import { motion } from 'motion/react';
 
 interface AuthPageProps {
   onLoginSuccess: (profile: UserProfile) => void;
@@ -88,6 +90,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     setIsLoading(true);
 
     try {
+      // 1. Authoritative Firestore check for role & block status
+      const firestoreUser = await fetchUserProfileFromFirestore(cleanUsername);
+      if (firestoreUser && (firestoreUser.isBlocked || firestoreUser.role === 'blocked')) {
+        soundFx.playError();
+        setErrorMessage(`Akun Anda (@${cleanUsername}) telah diblokir oleh Admin! Alasan: ${firestoreUser.blockedReason || 'Pelanggaran ketentuan layanan'}`);
+        return;
+      }
+
       const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -95,19 +105,35 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         body: JSON.stringify({
           username: cleanUsername,
           password: password,
+          rehydrate: !!firestoreUser,
+          role: firestoreUser?.role,
+          avatarColor: firestoreUser?.avatarColor,
+          isBlocked: firestoreUser?.isBlocked,
+          customDailyLimit: firestoreUser?.customDailyLimit,
+          blockedReason: firestoreUser?.blockedReason
         }),
       });
 
       const data = await res.json();
 
       if (res.ok && data.success) {
+        // Enforce Firestore authoritative role if present
+        const effectiveRole = firestoreUser?.role || (data.user.role as UserRole) || 'free';
+        const effectiveBlocked = firestoreUser?.isBlocked || data.user.isBlocked || false;
+        const effectiveLimit = effectiveBlocked ? 0 : (firestoreUser?.customDailyLimit !== undefined ? firestoreUser.customDailyLimit : (effectiveRole === 'premium' ? 9999 : 10));
+
         soundFx.playSuccess();
         const userProfile: UserProfile = {
           username: data.user.username,
-          nickname: data.user.username,
-          role: data.user.role || 'free',
-          avatarColor: data.user.avatarColor || getRandomColor(),
-          premiumExpiresAt: data.user.premiumExpiresAt,
+          nickname: firestoreUser?.nickname || data.user.username,
+          role: effectiveBlocked ? 'blocked' : effectiveRole,
+          avatarColor: firestoreUser?.avatarColor || data.user.avatarColor || getRandomColor(),
+          premiumExpiresAt: firestoreUser?.premiumExpiresAt || data.user.premiumExpiresAt,
+          customDailyLimit: effectiveLimit,
+          isBlocked: effectiveBlocked,
+          customRoleName: firestoreUser?.customRoleName,
+          customRoleExpiresAt: firestoreUser?.customRoleExpiresAt,
+          customRoleBaseTier: firestoreUser?.customRoleBaseTier,
           loginTime: Date.now(),
         };
 
@@ -117,6 +143,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           passwordHash: password,
           role: userProfile.role,
           avatarColor: userProfile.avatarColor,
+          isBlocked: effectiveBlocked,
+          customDailyLimit: effectiveLimit,
+          customRoleName: userProfile.customRoleName,
+          customRoleBaseTier: userProfile.customRoleBaseTier,
           createdAt: Date.now(),
         };
         saveLocalAccount(newLocalAccount);
@@ -133,11 +163,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           if (match) {
             if (match.passwordHash === password) {
               soundFx.playSuccess();
+              const isMatchBlocked = match.isBlocked || match.role === 'blocked';
               const profile: UserProfile = {
                 username: match.username,
                 nickname: match.username,
-                role: match.role,
+                role: isMatchBlocked ? 'blocked' : match.role,
                 avatarColor: match.avatarColor,
+                isBlocked: isMatchBlocked,
+                customDailyLimit: isMatchBlocked ? 0 : match.customDailyLimit,
+                customRoleName: match.customRoleName,
+                customRoleBaseTier: match.customRoleBaseTier,
                 loginTime: Date.now(),
               };
               saveAuthSession(profile);
@@ -190,12 +225,22 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       const localAccounts = getLocalAccounts();
       if (authMode === 'login') {
         const match = localAccounts.find((a) => a.username.toLowerCase() === cleanUsername);
+        if (match && (match.isBlocked || match.role === 'blocked')) {
+          soundFx.playError();
+          setErrorMessage(`Akun Anda telah diblokir! Alasan: ${match.blockedReason || 'Diblokir oleh Administrator'}`);
+          return;
+        }
         if (match && match.passwordHash === password) {
           const profile: UserProfile = {
             username: match.username,
             nickname: match.username,
             role: match.role,
             avatarColor: match.avatarColor,
+            isBlocked: match.isBlocked,
+            blockedReason: match.blockedReason,
+            customDailyLimit: match.customDailyLimit,
+            customRoleName: match.customRoleName,
+            customRoleBaseTier: match.customRoleBaseTier,
             loginTime: Date.now(),
           };
           saveAuthSession(profile);
@@ -245,9 +290,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     <div className="min-h-screen flex items-center justify-center px-4 py-8 relative overflow-hidden bg-[#080b13] text-slate-100 selection:bg-emerald-500 selection:text-white">
       {/* Liquid Dark Ambient Glow Lights */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute top-[10%] left-[15%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-br from-emerald-600/20 to-teal-800/10 blur-[130px] animate-blob-1" />
-        <div className="absolute bottom-[15%] right-[10%] w-[40vw] h-[40vw] rounded-full bg-gradient-to-br from-cyan-600/20 to-blue-800/10 blur-[140px] animate-blob-2" />
-        <div className="absolute top-[40%] right-[30%] w-[35vw] h-[35vw] rounded-full bg-gradient-to-br from-purple-600/15 to-rose-800/10 blur-[120px] animate-blob-3" />
+        <div className="absolute top-[10%] left-[15%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-br from-emerald-600/20 to-teal-800/10  " />
+        <div className="absolute bottom-[15%] right-[10%] w-[40vw] h-[40vw] rounded-full bg-gradient-to-br from-cyan-600/20 to-blue-800/10  " />
+        <div className="absolute top-[40%] right-[30%] w-[35vw] h-[35vw] rounded-full bg-gradient-to-br from-purple-600/15 to-rose-800/10  " />
       </div>
 
       <div className="w-full max-w-md relative z-10 space-y-6">
@@ -268,7 +313,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         </div>
 
         {/* Liquid Glass Auth Card */}
-        <div className="liquid-glass rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl space-y-5 bg-slate-900/80 backdrop-blur-2xl">
+        <motion.div className="liquid-glass rounded-3xl p-6 sm:p-8 border border-white/10 shadow-2xl space-y-5 bg-slate-900/80 backdrop-blur-sm" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           {/* Auth Mode Toggle Tabs (Login vs Registrasi) */}
           <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-slate-950/60 border border-slate-800/80">
             <button
@@ -414,7 +459,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </motion.div>
 
         {/* Security & Privacy Notice */}
         <div className="flex items-center justify-center gap-2 text-center text-xs text-slate-500">

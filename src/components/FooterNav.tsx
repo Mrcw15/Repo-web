@@ -1,17 +1,20 @@
 import React from 'react';
-import { Target, MessageSquare, Crown, User } from 'lucide-react';
+import { Target, MessageSquare, Crown, User, AlertOctagon } from 'lucide-react';
 import { soundFx } from '../utils/audio';
+import type { UserProfile } from '../utils/storage';
 
 interface FooterNavProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
   unreadChatCount?: number;
+  userProfile?: UserProfile;
 }
 
 export const FooterNav: React.FC<FooterNavProps> = ({
   currentTab,
   onTabChange,
   unreadChatCount = 0,
+  userProfile,
 }) => {
   const navItems = [
     {
@@ -49,11 +52,22 @@ export const FooterNav: React.FC<FooterNavProps> = ({
     },
   ];
 
+  if (userProfile?.isBlocked || userProfile?.role === 'blocked') {
+    navItems.push({
+      id: 'appeal',
+      label: 'Banding',
+      shortLabel: 'Banding',
+      icon: AlertOctagon,
+      activeColor: 'text-rose-300 font-black',
+      activeBg: 'bg-rose-500/20 border-rose-500/40 shadow-sm',
+    });
+  }
+
   return (
     <div className="fixed bottom-2 sm:bottom-5 left-0 right-0 z-40 flex justify-center px-2 sm:px-4 pointer-events-none w-full">
       <nav 
         id="global-footer-nav" 
-        className="pointer-events-auto liquid-glass-dock rounded-full p-1 sm:p-1.5 shadow-2xl flex items-center gap-1 sm:gap-2 max-w-[96%] sm:max-w-md w-full justify-between backdrop-blur-2xl border border-white/15 bg-slate-900/90"
+        className="pointer-events-auto liquid-glass-dock rounded-full p-1 sm:p-1.5 shadow-2xl flex items-center gap-1 sm:gap-2 max-w-[96%] sm:max-w-md w-full justify-between backdrop-blur-sm border border-white/15 bg-slate-900/90"
       >
         {navItems.map((item) => {
           const isActive = currentTab === item.id;

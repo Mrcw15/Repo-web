@@ -10,6 +10,9 @@ export interface UserProfile {
   isBlocked?: boolean;
   blockedReason?: string;
   customDailyLimit?: number;
+  customRoleName?: string;
+  customRoleExpiresAt?: number;
+  customRoleBaseTier?: 'user' | 'premium' | 'blocked';
 }
 
 export interface LocalAccount {
@@ -22,6 +25,9 @@ export interface LocalAccount {
   isBlocked?: boolean;
   blockedReason?: string;
   customDailyLimit?: number;
+  customRoleName?: string;
+  customRoleExpiresAt?: number;
+  customRoleBaseTier?: 'user' | 'premium' | 'blocked';
 }
 
 export interface ReachHistoryItem {
@@ -97,15 +103,30 @@ export function getAuthSession(): UserProfile | null {
     if (raw) {
       const session = JSON.parse(raw) as UserProfile;
       // If blocked, enforce role and 0 limit strictly
-      if (session.role === 'blocked' || session.isBlocked || session.customDailyLimit === 0) {
+      if (session.role === 'blocked' || session.isBlocked || session.customRoleBaseTier === 'blocked' || session.customDailyLimit === 0) {
         session.role = 'blocked';
         session.isBlocked = true;
         session.customDailyLimit = 0;
-      } else if (session.role === 'premium' && session.premiumExpiresAt) {
+      } else {
+        // Check if custom role has expired
+        if (session.customRoleExpiresAt && Date.now() > session.customRoleExpiresAt) {
+          delete session.customRoleName;
+          delete session.customRoleExpiresAt;
+          delete session.customRoleBaseTier;
+          if (session.role !== 'admin' && session.role !== 'premium') {
+            session.role = 'free';
+            session.customDailyLimit = 10;
+          }
+          saveAuthSession(session);
+        }
+
         // Check if premium has expired
-        if (Date.now() > session.premiumExpiresAt) {
+        if (session.role === 'premium' && session.premiumExpiresAt && Date.now() > session.premiumExpiresAt) {
           session.role = 'free';
           delete session.premiumExpiresAt;
+          if (session.customDailyLimit === 9999) {
+            session.customDailyLimit = 10;
+          }
           saveAuthSession(session);
         }
       }

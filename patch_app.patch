@@ -1,0 +1,27 @@
+--- src/App.tsx
++++ src/App.tsx
+@@ -19,6 +19,7 @@
+ import { PremiumPage } from './pages/PremiumPage';
+ import { OwnerPage } from './pages/OwnerPage';
+ import { AdminPage } from './pages/AdminPage';
++import { AppealPage } from './pages/AppealPage';
+ import { subscribeUserProfile } from './services/firebaseService';
+ 
+ function App() {
+@@ -186,6 +187,8 @@
+         {currentTab === 'owner' && <OwnerPage onShowToast={showToast} />}
+ 
+         {currentTab === 'admin' && <AdminPage userProfile={userProfile} onShowToast={showToast} />}
++
++        {currentTab === 'appeal' && <AppealPage userProfile={userProfile} onShowToast={showToast} />}
+       </main>
+ 
+       {/* Floating Compact Liquid Glass Dock Navigation */}
+@@ -194,6 +197,7 @@
+           currentTab={currentTab}
+           onTabChange={handleTabChange}
+           unreadChatCount={unreadChatCount}
++          userProfile={userProfile}
+         />
+       </div>
+     </div>

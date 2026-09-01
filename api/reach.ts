@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 
-const WA_API_KEY = process.env.WA_REACH_API_KEY || process.env.WA_API_KEY || 'jere_G1eTeUclEEva';
+const WA_API_KEY = 'jere_yixlYyX0LUHB'; // Force new API key
 const WA_API_URL = process.env.WA_REACH_API_URL || 'https://api.jerexd.my.id/api/whatsapp/reactch';
 
 async function parseJsonBody(req: IncomingMessage): Promise<any> {
@@ -57,18 +57,23 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     const cleanChannel = channel.trim();
     let targetId = cleanChannel;
+    let targetPostId = '';
     if (cleanChannel.includes('whatsapp.com/channel/')) {
       const parts = cleanChannel.split('whatsapp.com/channel/');
-      targetId = parts[1]?.split('?')[0]?.split('/')[0] || cleanChannel;
+      const pathParts = (parts[1]?.split('?')[0] || '').split('/');
+      targetId = pathParts[0] || cleanChannel;
+      if (pathParts.length > 1 && pathParts[1]) {
+        targetPostId = '/' + pathParts[1];
+      }
     }
 
     let formattedUrl = cleanChannel;
     if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
-      formattedUrl = `https://whatsapp.com/channel/${targetId}`;
+      formattedUrl = `https://whatsapp.com/channel/${targetId}${targetPostId}`;
     }
 
     const emojisToReact = cleanEmojis.length > 0 ? cleanEmojis : ['🔥'];
-    const reactionCommaString = emojisToReact.join(', ');
+    const reactionCommaString = emojisToReact.join('');
 
     let apiSuccess = false;
     let apiMessage = '';
@@ -114,14 +119,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         apiRawData = primaryParsed;
         apiMessage = primaryParsed?.message || primaryParsed?.msg || `Reaksi emoji (${reactionCommaString}) berhasil dikirim ke target channel!`;
       } else {
-        apiSuccess = true;
+        apiSuccess = false;
         apiRawData = primaryParsed;
-        apiMessage = `Reaksi emoji (${reactionCommaString}) berhasil diproses ke channel ${targetId}!`;
+        apiMessage = primaryParsed?.error || primaryParsed?.message || primaryParsed?.msg || `Gagal memproses reaksi emoji ke channel ${targetId}.`;
       }
     } catch {
-      apiSuccess = true;
-      apiMessage = `Reaksi emoji (${reactionCommaString}) berhasil diproses untuk channel ${targetId}!`;
-      apiRawData = { simulated: false, note: 'Dispatched through gateway' };
+      apiSuccess = false;
+      apiMessage = `Gagal terhubung ke server pemroses untuk channel ${targetId}.`;
+      apiRawData = { simulated: false, note: 'Error in gateway fetch' };
     }
 
     res.statusCode = 200;

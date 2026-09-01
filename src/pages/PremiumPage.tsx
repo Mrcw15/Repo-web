@@ -8,7 +8,7 @@ import {
   Clock, 
   Zap, 
   Copy,
-  ChevronRight,
+  
   ShieldCheck,
   CreditCard,
   QrCode
@@ -252,29 +252,28 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Tier 1: Mingguan */}
+        <div className="flex justify-center">
           <motion.div 
-            whileHover={{ y: -4, transition: { duration: 0.2 } }}
-            className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col justify-between space-y-4"
+            whileHover={{ y: -5, transition: { duration: 0.2 } }}
+            className="liquid-glass-amber rounded-3xl p-5 sm:p-6 border border-amber-400/40 shadow-xl flex flex-col justify-between space-y-4 relative overflow-hidden w-full max-w-md"
           >
             <div className="space-y-3">
               <div className="flex justify-between items-center">
-                <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold">
-                  Mingguan
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-extrabold flex items-center gap-1">
+                  <Crown className="w-3 h-3" /> PREMIUM
                 </span>
-                <span className="text-[11px] text-slate-400 font-mono">7 Hari</span>
+                <span className="text-[11px] text-amber-300/80 font-mono font-bold">VIP Akses</span>
               </div>
 
               <div>
-                <span className="text-2xl font-black text-white">Rp 25.000</span>
-                <span className="text-xs text-slate-400"> / minggu</span>
+                <span className="text-3xl font-black text-white">Rp 2.000</span>
+                <span className="text-xs text-amber-200/80"> / langganan</span>
               </div>
 
-              <ul className="space-y-2 text-xs text-slate-300">
+              <ul className="space-y-2 text-xs text-slate-200">
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Unlimited Reach Channel</span>
+                  <span className="font-semibold">Unlimited Reach Channel</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -282,50 +281,11 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>VIP Badge di Profile</span>
-                </li>
-              </ul>
-            </div>
-
-            <button
-              onClick={() => onNavigateTab('owner')}
-              className="glass-btn w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all flex items-center justify-center gap-1"
-            >
-              <span>Hubungi Admin</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </motion.div>
-
-          {/* Tier 2: Bulanan (Best Value) */}
-          <motion.div 
-            whileHover={{ y: -5, transition: { duration: 0.2 } }}
-            className="liquid-glass-amber rounded-3xl p-5 sm:p-6 border border-amber-400/40 shadow-xl flex flex-col justify-between space-y-4 relative overflow-hidden"
-          >
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-extrabold flex items-center gap-1">
-                  <Crown className="w-3 h-3" /> BEST VALUE
-                </span>
-                <span className="text-[11px] text-amber-300/80 font-mono font-bold">30 Hari</span>
-              </div>
-
-              <div>
-                <span className="text-3xl font-black text-white">Rp 75.000</span>
-                <span className="text-xs text-amber-200/80"> / bulan</span>
-              </div>
-
-              <ul className="space-y-2 text-xs text-slate-200">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="font-semibold">Semua Fitur Mingguan</span>
+                  <span>VIP Badge Eksklusif di Profile</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Dukungan CS Prioritas 24/7</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>VIP Badge Emas Eksklusif</span>
+                  <span>Dukungan Admin Khusus</span>
                 </li>
               </ul>
             </div>
@@ -335,50 +295,7 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
               className="glass-btn w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-black shadow-lg shadow-amber-500/25 transition-all flex items-center justify-center gap-1.5"
             >
               <Crown className="w-4 h-4" />
-              <span>Beli Paket 30 Hari</span>
-            </button>
-          </motion.div>
-
-          {/* Tier 3: Lifetime */}
-          <motion.div 
-            whileHover={{ y: -4, transition: { duration: 0.2 } }}
-            className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col justify-between space-y-4"
-          >
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-[10px] font-bold">
-                  Lifetime
-                </span>
-                <span className="text-[11px] text-slate-400 font-mono">Permanen</span>
-              </div>
-
-              <div>
-                <span className="text-2xl font-black text-white">Rp 199.000</span>
-                <span className="text-xs text-slate-400"> / sekali bayar</span>
-              </div>
-
-              <ul className="space-y-2 text-xs text-slate-300">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Akses Seumur Hidup</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Akses Semua Update Baru</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Master VIP Badge</span>
-                </li>
-              </ul>
-            </div>
-
-            <button
-              onClick={() => onNavigateTab('owner')}
-              className="glass-btn w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all flex items-center justify-center gap-1"
-            >
-              <span>Hubungi Admin</span>
-              <ChevronRight className="w-3.5 h-3.5" />
+              <span>Beli VIP Premium</span>
             </button>
           </motion.div>
         </div>

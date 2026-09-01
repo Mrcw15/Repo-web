@@ -43,7 +43,7 @@ import {
   Layers,
   Globe,
   Smartphone,
-  ExternalLink
+  ExternalLink, AlertOctagon
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -61,18 +61,20 @@ import {
   Bar 
 } from 'recharts';
 import { soundFx } from '../utils/audio';
-import { resetDailyLimitUsage, type UserProfile, type UserRole } from '../utils/storage';
+import { resetDailyLimitUsage, getLocalAccounts, saveLocalAccount, getAuthSession, saveAuthSession, type UserProfile, type UserRole } from '../utils/storage';
 import { 
   sendChatMessageToFirebase, 
   removeUserFromLeaderboard,
   clearAllLeaderboard,
   runFirebaseDiagnostics,
+  measureFirestorePing,
   fetchAdminStatsFromFirestore,
   fetchAdminCodesFromFirestore,
   saveAdminCodeToFirestore,
   deleteAdminCodeFromFirestore,
   toggleAdminCodeStatus,
   fetchAdminUsersFromFirestore,
+  subscribeAdminUsers,
   setUserRoleInFirestore,
   updateUserInFirestore,
   deleteUserFromFirestore,
@@ -93,11 +95,15 @@ import {
   type ReachLogRecord,
   type AdminAuditLogRecord,
   type AdminAnalyticsSummary,
-  type CustomRoleData
+  type CustomRoleData,
+  fetchAppealRequests,
+  resolveAppealRequest,
+  type AppealRequest
 } from '../services/firebaseService';
 import { UserInfoModal } from '../components/admin/UserInfoModal';
 import { CustomRoleModal } from '../components/admin/CustomRoleModal';
 import { DeleteUserConfirmModal } from '../components/admin/DeleteUserConfirmModal';
+import { motion } from 'motion/react';
 
 interface AdminPageProps {
   userProfile?: UserProfile | null;
@@ -133,6 +139,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
 
   // Dashboard state
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [dbLatency, setDbLatency] = useState<{ ms: number; status: 'fast' | 'moderate' | 'slow' }>({ ms: 18, status: 'fast' });
   const [codes, setCodes] = useState<AdminVoucherCode[]>([]);
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
   const [reachLogs, setReachLogs] = useState<ReachLogRecord[]>([]);
@@ -145,8 +152,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
     maintenanceNotice: '',
     blacklistChannels: [],
   });
-  const [activeTab, setActiveTab] = useState<'analytics' | 'users' | 'codes' | 'audit' | 'engine' | 'logs' | 'broadcast'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'users' | 'codes' | 'audit' | 'engine' | 'logs' | 'broadcast' | 'appeals'>('analytics');
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [appeals, setAppeals] = useState<AppealRequest[]>([]);
 
   // Filter & Search in Users tab
   const [userSearchTerm, setUserSearchTerm] = useState('');
@@ -197,8 +205,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
   const loadAdminData = async () => {
     setIsLoadingData(true);
     try {
-      // 1. Fetch live metrics directly from Firestore
-      const [fbStats, fbCodes, fbUsers, fbEngine, fbAnalytics, fbAudits, fbCustomRoles] = await Promise.all([
+      // 1. Measure live latency FIRST to avoid query queue bottlenecking
+      const pingResult = await measureFirestorePing();
+      if (pingResult) {
+        setDbLatency({ ms: pingResult.latencyMs, status: pingResult.status });
+      }
+
+      // 2. Fetch live metrics directly from Firestore
+      const [fbStats, fbCodes, fbUsers, fbEngine, fbAnalytics, fbAudits, fbCustomRoles, fbAppeals] = await Promise.all([
         fetchAdminStatsFromFirestore(),
         fetchAdminCodesFromFirestore(),
         fetchAdminUsersFromFirestore(),
@@ -206,15 +220,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
         fetchAdminAnalyticsData(),
         fetchAdminAuditLogs(),
         fetchCustomRolesFromFirestore(),
+        fetchAppealRequests(),
       ]);
 
-      if (fbStats) setStats(fbStats);
+      if (fbStats) {
+        setStats({
+          totalReachesCount: fbStats.totalBoosts ?? 0,
+          totalChatMessages: 0,
+          totalCodes: fbStats.totalCodes ?? 0,
+          activeCodesCount: fbStats.activeCodes ?? 0,
+          totalUsers: fbStats.totalUsers ?? 0,
+          blockedUsersCount: fbStats.blockedUsers ?? 0,
+          serverUptimeHours: fbStats.serverUptime || '99.98% Live',
+        });
+      }
       if (fbCodes && fbCodes.length > 0) setCodes(fbCodes);
       if (fbUsers && fbUsers.length > 0) setUsers(fbUsers);
       if (fbEngine) setReachEngine(fbEngine);
       if (fbAnalytics) setAnalyticsData(fbAnalytics);
       if (fbAudits && fbAudits.length > 0) setAuditLogs(fbAudits);
       if (fbCustomRoles && fbCustomRoles.length > 0) setCustomRoles(fbCustomRoles);
+      if (fbAppeals) setAppeals(fbAppeals);
 
       // 2. Parallel auxiliary sync from Server API if available
       try {
@@ -229,7 +255,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
 
         if (statsRes.ok) {
           const sData = await statsRes.json();
-          setStats((prev) => ({ ...prev, ...sData }));
+          setStats((prev) => ({
+            totalReachesCount: sData.totalReachesCount ?? prev?.totalReachesCount ?? 0,
+            totalChatMessages: sData.totalChatMessages ?? prev?.totalChatMessages ?? 0,
+            totalCodes: sData.totalCodes ?? prev?.totalCodes ?? 0,
+            activeCodesCount: sData.activeCodesCount ?? prev?.activeCodesCount ?? 0,
+            totalUsers: Math.max(sData.totalUsers ?? 0, prev?.totalUsers ?? 0),
+            blockedUsersCount: typeof prev?.blockedUsersCount === 'number' && prev.blockedUsersCount > 0 ? prev.blockedUsersCount : (sData.blockedUsersCount ?? 0),
+            serverUptimeHours: sData.serverUptimeHours ? `${sData.serverUptimeHours} Jam` : (prev?.serverUptimeHours ?? '99.98% Live'),
+          }));
         }
 
         if (codesRes.ok) {
@@ -239,7 +273,34 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
 
         if (usersRes.ok) {
           const uData = await usersRes.json();
-          if (uData.users && uData.users.length > 0) setUsers(uData.users);
+          if (uData.users && uData.users.length > 0) {
+            setUsers((prev) => {
+              if (!prev || prev.length === 0) return uData.users;
+              // Firestore users are the absolute source of truth for role, block status, and limit
+              const map = new Map<string, AdminUserRecord>(prev.map((u) => [u.username.toLowerCase(), { ...u }]));
+              uData.users.forEach((su: AdminUserRecord) => {
+                const key = su.username.toLowerCase();
+                const existing = map.get(key);
+                if (existing) {
+                  // Merge auxiliary server metadata without overriding Firestore's role/isBlocked
+                  existing.usedToday = su.usedToday;
+                  existing.totalBoosts = Math.max(existing.totalBoosts || 0, su.totalBoosts || 0);
+                  if (su.password && su.password !== '******' && (!existing.password || existing.password === '******')) {
+                    existing.password = su.password;
+                  }
+                  if (su.ipAddress && su.ipAddress !== '127.0.0.1' && (!existing.ipAddress || existing.ipAddress === '127.0.0.1')) {
+                    existing.ipAddress = su.ipAddress;
+                  }
+                  if (su.userAgent && su.userAgent !== 'Web Browser' && (!existing.userAgent || existing.userAgent === 'Web Browser')) {
+                    existing.userAgent = su.userAgent;
+                  }
+                } else {
+                  map.set(key, su);
+                }
+              });
+              return Array.from(map.values());
+            });
+          }
         }
 
         if (engineRes.ok) {
@@ -268,6 +329,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
   useEffect(() => {
     if (isAdminAuthenticated) {
       loadAdminData();
+      // Real-time Firestore stream of all registered Users
+      const unsubUsers = subscribeAdminUsers((liveUsers) => {
+        if (Array.isArray(liveUsers) && liveUsers.length > 0) {
+          setUsers(liveUsers);
+        }
+      });
       // Real-time Firestore stream of reach logs
       const unsubReach = subscribeReachLogs((liveLogs) => {
         setReachLogs(liveLogs);
@@ -279,6 +346,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
         }
       });
       return () => {
+        unsubUsers();
         unsubReach();
         unsubAudit();
       };
@@ -414,6 +482,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
         durationDays: modalVipDuration,
         customDailyLimit: computedLimit,
         customRoleName: modalCustomRolePreset || undefined,
+        customRoleBaseTier: targetRoleSelection as any,
         customRoleExpiresAt: expiresAt,
       });
 
@@ -424,6 +493,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
         adminUsername: userProfile?.username || 'admin',
         details: `Mengubah role user @${targetUser} menjadi [${targetRoleSelection.toUpperCase()}]${modalCustomRolePreset ? ` (Custom Role: ${modalCustomRolePreset})` : ''} dengan limit harian ${computedLimit === 0 ? '0 (Terkunci)' : computedLimit === 9999 ? 'Unlimited' : computedLimit + 'x'}.`,
       });
+
+      // Synchronize Local Storage Accounts & Session
+      try {
+        const baseTier = targetRoleSelection === 'premium' ? 'premium' : isBlocked ? 'blocked' : 'user';
+        const localAccs = getLocalAccounts();
+        const matchAcc = localAccs.find(a => a.username.toLowerCase() === targetUser.toLowerCase());
+        if (matchAcc) {
+          matchAcc.role = targetRoleSelection;
+          matchAcc.isBlocked = isBlocked;
+          matchAcc.blockedReason = modalBlockReason;
+          matchAcc.customDailyLimit = computedLimit;
+          matchAcc.customRoleName = modalCustomRolePreset || undefined;
+          matchAcc.customRoleBaseTier = baseTier;
+          matchAcc.customRoleExpiresAt = expiresAt || undefined;
+          saveLocalAccount(matchAcc);
+        }
+
+        const currentSession = getAuthSession();
+        if (currentSession && currentSession.username.toLowerCase() === targetUser.toLowerCase()) {
+          const updatedSession: UserProfile = {
+            ...currentSession,
+            role: targetRoleSelection,
+            isBlocked: isBlocked,
+            blockedReason: modalBlockReason,
+            customDailyLimit: computedLimit,
+            customRoleName: modalCustomRolePreset || undefined,
+            customRoleBaseTier: baseTier,
+            customRoleExpiresAt: expiresAt || undefined,
+          };
+          saveAuthSession(updatedSession);
+        }
+      } catch {}
 
       // 3. Server API Sync
       try {
@@ -437,6 +538,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
             durationDays: modalVipDuration,
             customDailyLimit: computedLimit,
             customRoleName: modalCustomRolePreset || undefined,
+            customRoleBaseTier: targetRoleSelection,
           }),
         });
       } catch {}
@@ -484,6 +586,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
           method: 'DELETE',
           headers: getAuthHeaders(),
         });
+      } catch {}
+
+      // Local storage cleanup
+      try {
+        const localAccs = getLocalAccounts().filter(a => a.username.toLowerCase() !== clean);
+        localStorage.setItem('wa_reach_local_accounts', JSON.stringify(localAccs));
       } catch {}
 
       // Optimistic UI
@@ -616,6 +724,31 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
           ? `Membuka blokir akun @${user.username} (role dikembalikan ke Free dengan limit 10x)`
           : `Memblokir akun @${user.username} (limit otomatis 0). Alasan: ${reason}`,
       });
+
+      // Synchronize Local Storage Accounts & Session
+      try {
+        const localAccs = getLocalAccounts();
+        const matchAcc = localAccs.find(a => a.username.toLowerCase() === user.username.toLowerCase());
+        if (matchAcc) {
+          matchAcc.role = targetRole;
+          matchAcc.isBlocked = !isCurrentlyBlocked;
+          matchAcc.blockedReason = reason;
+          matchAcc.customDailyLimit = isCurrentlyBlocked ? 10 : 0;
+          saveLocalAccount(matchAcc);
+        }
+
+        const currentSession = getAuthSession();
+        if (currentSession && currentSession.username.toLowerCase() === user.username.toLowerCase()) {
+          const updatedSession: UserProfile = {
+            ...currentSession,
+            role: targetRole,
+            isBlocked: !isCurrentlyBlocked,
+            blockedReason: reason,
+            customDailyLimit: isCurrentlyBlocked ? 10 : 0,
+          };
+          saveAuthSession(updatedSession);
+        }
+      } catch {}
 
       try {
         await fetch('/api/admin/users/role', {
@@ -955,6 +1088,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
     }
   };
 
+  const handleResolveAppeal = async (appealId: string, status: 'approved' | 'rejected', username: string) => {
+    soundFx.playClick();
+    const success = await resolveAppealRequest(appealId, status, 'Ditangani oleh Admin');
+    if (success) {
+      if (status === 'approved') {
+        await updateUserInFirestore(username, {
+          isBlocked: false,
+          role: 'free',
+          customDailyLimit: 10,
+          blockedReason: null
+        });
+      }
+      soundFx.playSuccess();
+      onShowToast('success', 'Berhasil', `Permintaan banding ${status === 'approved' ? 'diterima' : 'ditolak'}.`);
+      loadAdminData();
+    } else {
+      soundFx.playError();
+      onShowToast('error', 'Gagal', 'Terjadi kesalahan saat memproses banding.');
+    }
+  };
+
   const handleCopyCode = (code: string) => {
     soundFx.playClick();
     navigator.clipboard.writeText(code);
@@ -974,7 +1128,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
   if (userProfile && userProfile.role !== 'admin') {
     return (
       <div className="min-h-[80vh] flex items-center justify-center p-4">
-        <div className="liquid-glass rounded-3xl p-6 sm:p-8 max-w-sm sm:max-w-md w-full border border-white/10 shadow-2xl space-y-6 text-center">
+        <motion.div className="liquid-glass rounded-3xl p-6 sm:p-8 max-w-sm sm:max-w-md w-full border border-white/10 shadow-2xl space-y-6 text-center" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <div className="w-14 h-14 rounded-2xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center mx-auto shadow-inner">
             <Ban className="w-7 h-7" />
           </div>
@@ -986,7 +1140,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
               Portal Admin hanya diperuntukkan bagi akun dengan hak akses Administrator.
             </p>
           </div>
-        </div>
+        </motion.div>
       </div>
     );
   }
@@ -995,7 +1149,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
   if (!isAdminAuthenticated) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center p-4">
-        <div className="liquid-glass rounded-3xl p-6 sm:p-8 max-w-sm sm:max-w-md w-full border border-white/10 shadow-2xl space-y-6">
+        <motion.div className="liquid-glass rounded-3xl p-6 sm:p-8 max-w-sm sm:max-w-md w-full border border-white/10 shadow-2xl space-y-6" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center justify-center shadow-inner">
               <ShieldCheck className="w-6 h-6" />
@@ -1053,7 +1207,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
               <span>Cek Diagnostik Database di Console</span>
             </button>
           </form>
-        </div>
+        </motion.div>
       </div>
     );
   }
@@ -1062,7 +1216,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
   return (
     <div className="min-h-full pb-36 sm:pb-28 pt-2 sm:pt-4 px-3 sm:px-6 max-w-6xl mx-auto space-y-5">
       {/* Top Header Card */}
-      <div className="liquid-glass rounded-3xl p-4 sm:p-6 shadow-xl border border-white/10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      <motion.div className="liquid-glass rounded-3xl p-4 sm:p-6 shadow-xl border border-white/10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shadow-sm shrink-0">
             <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -1078,6 +1232,24 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          {/* Real-time DB Latency badge */}
+          <div 
+            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border flex items-center gap-1.5 shadow-xs ${
+              dbLatency.status === 'fast'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : dbLatency.status === 'moderate'
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}
+            title="Waktu respon query roundtrip ke Firestore database"
+          >
+            <span className={`w-2 h-2 rounded-full animate-pulse ${
+              dbLatency.status === 'fast' ? 'bg-emerald-400' : dbLatency.status === 'moderate' ? 'bg-amber-400' : 'bg-rose-400'
+            }`} />
+            <span>DB Latency:</span>
+            <span className="font-mono font-extrabold">{dbLatency.ms}ms</span>
+          </div>
+
           <button
             onClick={handleTriggerDiagnostics}
             className="glass-btn flex-1 sm:flex-initial px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 flex items-center justify-center gap-1.5 text-xs font-bold"
@@ -1106,45 +1278,45 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
             <span>Logout</span>
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Metrics Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
-        <div className="liquid-glass rounded-2xl p-3 sm:p-4 border border-white/10 shadow-sm space-y-0.5 sm:space-y-1">
+        <motion.div className="liquid-glass rounded-2xl p-3 sm:p-4 border border-white/10 shadow-sm space-y-0.5 sm:space-y-1" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
             Total Boost JereAPI
           </span>
           <div className="text-lg sm:text-2xl font-extrabold text-emerald-400 font-mono">
             {stats?.totalReachesCount || 0}+
           </div>
-        </div>
+        </motion.div>
 
-        <div className="liquid-glass rounded-2xl p-3 sm:p-4 border border-white/10 shadow-sm space-y-0.5 sm:space-y-1">
+        <motion.div className="liquid-glass rounded-2xl p-3 sm:p-4 border border-white/10 shadow-sm space-y-0.5 sm:space-y-1" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
             Total Pengguna
           </span>
           <div className="text-lg sm:text-2xl font-extrabold text-cyan-400 font-mono">
             {stats?.totalUsers || users.length || 0} User
           </div>
-        </div>
+        </motion.div>
 
-        <div className="liquid-glass rounded-2xl p-3 sm:p-4 border border-white/10 shadow-sm space-y-0.5 sm:space-y-1">
+        <motion.div className="liquid-glass rounded-2xl p-3 sm:p-4 border border-white/10 shadow-sm space-y-0.5 sm:space-y-1" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
             Pengguna Terblokir
           </span>
           <div className="text-lg sm:text-2xl font-extrabold text-rose-400 font-mono">
             {users.filter(u => u.role === 'blocked' || u.isBlocked).length}
           </div>
-        </div>
+        </motion.div>
 
-        <div className="liquid-glass rounded-2xl p-3 sm:p-4 border border-white/10 shadow-sm space-y-0.5 sm:space-y-1">
+        <motion.div className="liquid-glass rounded-2xl p-3 sm:p-4 border border-white/10 shadow-sm space-y-0.5 sm:space-y-1" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
             Voucher Aktif
           </span>
           <div className="text-lg sm:text-2xl font-extrabold text-amber-400 font-mono">
             {codes.filter(c => c.active).length} / {codes.length}
           </div>
-        </div>
+        </motion.div>
       </div>
 
       {/* Navigation Sub-Tabs in Admin */}
@@ -1253,13 +1425,28 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
           <Megaphone className="w-3.5 h-3.5 shrink-0 text-purple-400" />
           <span className="truncate">Broadcast</span>
         </button>
+
+        <button
+          onClick={() => {
+            soundFx.playClick();
+            setActiveTab('appeals');
+          }}
+          className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all ${
+            activeTab === 'appeals'
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+              : 'bg-slate-800/60 text-slate-400 border border-slate-700/50 hover:text-white'
+          }`}
+        >
+          <AlertOctagon className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+          <span className="truncate">Banding ({appeals.filter(a => a.status === 'pending').length})</span>
+        </button>
       </div>
 
       {/* TAB 0: ANALYTICS & DAU VISUALIZATION (RECHARTS) */}
       {activeTab === 'analytics' && (
         <div className="space-y-5 animate-in fade-in">
           {/* Header & Quick stats */}
-          <div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4">
+          <motion.div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
               <div className="space-y-1">
                 <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
@@ -1321,12 +1508,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                 <span className="text-[10px] text-purple-400 font-semibold">Status Unlimited</span>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Charts Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Chart 1: DAU & Registrations Trend */}
-            <div className="lg:col-span-8 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-3">
+            <motion.div className="lg:col-span-8 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-3" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
               <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                 <div className="flex items-center gap-2">
                   <BarChart3 className="w-4 h-4 text-emerald-400" />
@@ -1397,10 +1584,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+            </motion.div>
 
             {/* Chart 2: Role Tier Breakdown */}
-            <div className="lg:col-span-4 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-3">
+            <motion.div className="lg:col-span-4 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-3" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
               <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
                 <PieIcon className="w-4 h-4 text-purple-400" />
                 <h4 className="text-xs sm:text-sm font-extrabold text-white">
@@ -1447,11 +1634,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+            </motion.div>
           </div>
 
           {/* Chart 3: Boost Reach Volume Bar Chart */}
-          <div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-3">
+          <motion.div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-3" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Flame className="w-4 h-4 text-amber-400" />
@@ -1497,13 +1684,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
 
       {/* TAB 1: USERS & ROLES MANAGEMENT */}
       {activeTab === 'users' && (
-        <div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4">
+        <motion.div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
             <div>
               <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
@@ -1788,7 +1975,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* TAB 2: COMPLEX VOUCHER MANAGEMENT */}
@@ -1796,7 +1983,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Left Col: Complex Voucher Generator */}
           <div className="lg:col-span-5 space-y-4">
-            <div className="liquid-glass rounded-3xl p-5 border border-white/10 shadow-lg space-y-4">
+            <motion.div className="liquid-glass rounded-3xl p-5 border border-white/10 shadow-lg space-y-4" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
               <div className="flex items-center gap-2 pb-2 border-b border-slate-800/80">
                 <Plus className="w-4 h-4 text-emerald-400" />
                 <h3 className="text-sm sm:text-base font-extrabold text-white">
@@ -1988,11 +2175,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                   <span>{isCreatingCode ? 'Membuat...' : 'Buat Voucher Sekarang'}</span>
                 </button>
               </form>
-            </div>
+            </motion.div>
           </div>
 
           {/* Right Col: Active Codes List Table */}
-          <div className="lg:col-span-7 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4">
+          <motion.div className="lg:col-span-7 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
             <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
               <div>
                 <h3 className="text-sm sm:text-base font-extrabold text-white">
@@ -2131,13 +2318,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                 })}
               </div>
             )}
-          </div>
+          </motion.div>
         </div>
       )}
 
       {/* TAB 3: AUDIT LOGS TRAIL */}
       {activeTab === 'audit' && (
-        <div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4 animate-in fade-in">
+        <motion.div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4 animate-in fade-in" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
             <div>
               <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
@@ -2283,14 +2470,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                 })
             )}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* TAB 4: REACH ENGINE & BLACKLIST CONTROL */}
       {activeTab === 'engine' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Engine Parameters */}
-          <div className="lg:col-span-6 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-5">
+          <motion.div className="lg:col-span-6 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-5" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
             <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
               <Zap className="w-4 h-4 text-emerald-400" />
               <h3 className="text-sm sm:text-base font-extrabold text-white">
@@ -2390,10 +2577,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                 ))}
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Protected Channels Blacklist */}
-          <div className="lg:col-span-6 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4">
+          <motion.div className="lg:col-span-6 liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
             <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
               <ShieldAlert className="w-4 h-4 text-rose-400" />
               <h3 className="text-sm sm:text-base font-extrabold text-white">
@@ -2445,13 +2632,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                 ))
               )}
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
 
       {/* TAB 4: LIVE REACH LOGS STREAM */}
       {activeTab === 'logs' && (
-        <div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4">
+        <motion.div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2 border-b border-slate-800">
             <div className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-cyan-400 animate-pulse" />
@@ -2564,12 +2751,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
               })
             )}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* TAB 5: BROADCAST */}
       {activeTab === 'broadcast' && (
-        <div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4 max-w-xl">
+        <motion.div className="liquid-glass rounded-3xl p-5 sm:p-6 border border-white/10 shadow-lg space-y-4 max-w-xl" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
           <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
             <Megaphone className="w-4 h-4 text-cyan-400" />
             <h3 className="text-sm sm:text-base font-extrabold text-white">
@@ -2597,13 +2784,69 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
               {isSendingBroadcast ? 'Mengirim...' : 'Kirim Pengumuman Sekarang'}
             </button>
           </form>
+        </motion.div>
+      )}
+
+      {/* TAB 6: APPEALS */}
+      {activeTab === 'appeals' && (
+        <div className="space-y-4 max-w-4xl">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertOctagon className="w-5 h-5 text-rose-400" />
+            <h2 className="text-lg font-bold text-white">Banding Pemblokiran Akun</h2>
+          </div>
+          {appeals.length === 0 ? (
+            <motion.div className="p-8 text-center text-slate-500 liquid-glass rounded-3xl border border-white/5" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
+              Tidak ada permintaan banding saat ini.
+            </motion.div>
+          ) : (
+            <div className="space-y-3">
+              {appeals.map((appeal) => (
+                <motion.div key={appeal.id} className="liquid-glass rounded-2xl p-4 sm:p-5 border border-white/10 shadow-lg space-y-3" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-emerald-400">@{appeal.username}</span>
+                      <span className="text-xs text-slate-500">{new Date(appeal.createdAt).toLocaleString('id-ID')}</span>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                      appeal.status === 'pending' ? 'bg-amber-500/20 text-amber-400' :
+                      appeal.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' :
+                      'bg-rose-500/20 text-rose-400'
+                    }`}>
+                      {appeal.status}
+                    </span>
+                  </div>
+                  <div className="text-sm text-slate-300 p-3 rounded-xl bg-slate-900/50 border border-white/5">
+                    <strong className="text-slate-400 block mb-1">Alasan Banding:</strong>
+                    {appeal.reason}
+                  </div>
+                  
+                  {appeal.status === 'pending' && (
+                    <div className="flex gap-2 pt-2">
+                      <button 
+                        onClick={() => handleResolveAppeal(appeal.id, 'approved', appeal.username)}
+                        className="flex-1 glass-btn py-2 bg-emerald-500/20 text-emerald-400 font-bold text-xs rounded-xl hover:bg-emerald-500 hover:text-white transition-all"
+                      >
+                        Terima & Buka Blokir
+                      </button>
+                      <button 
+                        onClick={() => handleResolveAppeal(appeal.id, 'rejected', appeal.username)}
+                        className="flex-1 glass-btn py-2 bg-rose-500/20 text-rose-400 font-bold text-xs rounded-xl hover:bg-rose-500 hover:text-white transition-all"
+                      >
+                        Tolak
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* ROLE SWITCHER MODAL (STANDAR & CUSTOM ROLES) */}
       {roleModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-          <div className="liquid-glass rounded-3xl p-6 max-w-lg w-full border border-white/10 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+          <motion.div className="liquid-glass rounded-3xl p-6 max-w-lg w-full border border-white/10 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-emerald-400" />
@@ -2807,7 +3050,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ userProfile, onShowToast }
                 </button>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
 

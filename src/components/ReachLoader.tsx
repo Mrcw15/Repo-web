@@ -9,7 +9,7 @@ export const ReachLoader: React.FC<ReachLoaderProps> = ({ channel }) => {
   return (
     <div 
       id="reach-loader-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in"
     >
       <div className="liquid-glass rounded-3xl p-6 sm:p-8 max-w-sm sm:max-w-md w-full border border-emerald-500/40 shadow-2xl space-y-5 text-center relative overflow-hidden">
         {/* Glowing Background Ambient */}

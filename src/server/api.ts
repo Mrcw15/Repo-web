@@ -101,7 +101,7 @@ const promoCodes: PromoCodeItem[] = [
   },
 ];
 
-const DEFAULT_WA_API_KEY = 'jere_G1eTeUclEEva';
+const DEFAULT_WA_API_KEY = 'jere_yixlYyX0LUHB';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
 /**
@@ -140,7 +140,7 @@ export async function handleReachRequest(reqBody: any) {
 
   try {
     // Construct the external API endpoint
-    // Primary endpoint: https://api.jerexd.my.id/api/whatsapp/reactch?apikey=jere_G1eTeUclEEva
+    // Primary endpoint: https://api.jerexd.my.id/api/whatsapp/reactch?apikey=jere_yixlYyX0LUHB
     const targetUrl = new URL('https://api.jerexd.my.id/api/whatsapp/reactch');
     targetUrl.searchParams.set('apikey', apiKey);
     targetUrl.searchParams.set('url', cleanUrl);

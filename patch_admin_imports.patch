@@ -1,0 +1,12 @@
+--- src/pages/AdminPage.tsx
++++ src/pages/AdminPage.tsx
+@@ -95,6 +95,9 @@
+   type ReachLogRecord,
+   type AdminAuditLogRecord,
+   type AdminAnalyticsSummary,
+-  type CustomRoleData
++  type CustomRoleData,
++  fetchAppealRequests,
++  resolveAppealRequest,
++  type AppealRequest
+ } from '../services/firebaseService';

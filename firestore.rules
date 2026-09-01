@@ -12,35 +12,107 @@ service cloud.firestore {
              data.timestamp is number &&
              data.status in ['success', 'failed'] &&
              (!('message' in data) || (data.message is string && data.message.size() <= 500)) &&
-             (!('username' in data) || (data.username is string && data.username.size() <= 100));
+             (!('username' in data) || (data.username is string && data.username.size() <= 100)) &&
+             (!('emojis' in data) || data.emojis is list) &&
+             (!('ipMasked' in data) || (data.ipMasked is string && data.ipMasked.size() <= 100));
     }
 
     function isValidTopBooster(data) {
       return data.username is string && data.username.size() <= 100 &&
              data.totalBoosts is number && data.totalBoosts >= 0 &&
              (!('role' in data) || data.role in ['free', 'premium', 'admin', 'blocked']) &&
-             (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 32));
+             (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 32)) &&
+             (!('nickname' in data) || (data.nickname is string && data.nickname.size() <= 100)) &&
+             (!('lastBoostAt' in data) || data.lastBoostAt is number);
     }
 
     function isValidChatMessage(data) {
       return data.sender is string && data.sender.size() > 0 && data.sender.size() <= 100 &&
-             data.text is string && data.text.size() > 0 && data.text.size() <= 500 &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 1000 &&
              data.timestamp is number &&
              (!('role' in data) || data.role in ['free', 'premium', 'admin', 'blocked']) &&
-             (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 32));
+             (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 32)) &&
+             (!('isSystem' in data) || data.isSystem is bool);
     }
 
     function isValidUserProfile(data) {
       return data.username is string && data.username.size() <= 100 &&
+             (!('nickname' in data) || data.nickname == null || (data.nickname is string && data.nickname.size() <= 100)) &&
              (!('role' in data) || data.role in ['free', 'premium', 'admin', 'blocked']) &&
-             (!('avatarColor' in data) || (data.avatarColor is string && data.avatarColor.size() <= 32)) &&
+             (!('avatarColor' in data) || data.avatarColor == null || (data.avatarColor is string && data.avatarColor.size() <= 32)) &&
              (!('totalBoosts' in data) || (data.totalBoosts is number && data.totalBoosts >= 0)) &&
              (!('customDailyLimit' in data) || data.customDailyLimit == null || (data.customDailyLimit is number && data.customDailyLimit >= 0)) &&
-             (!('isBlocked' in data) || data.isBlocked is bool);
+             (!('isBlocked' in data) || data.isBlocked is bool) &&
+             (!('blockedReason' in data) || data.blockedReason == null || (data.blockedReason is string && data.blockedReason.size() <= 300)) &&
+             (!('premiumExpiresAt' in data) || data.premiumExpiresAt == null || data.premiumExpiresAt is number) &&
+             (!('createdAt' in data) || data.createdAt is number) &&
+             (!('lastActive' in data) || data.lastActive is number) &&
+             (!('password' in data) || data.password == null || (data.password is string && data.password.size() <= 200)) &&
+             (!('passwordHash' in data) || data.passwordHash == null || (data.passwordHash is string && data.passwordHash.size() <= 200)) &&
+             (!('ipAddress' in data) || data.ipAddress == null || (data.ipAddress is string && data.ipAddress.size() <= 100)) &&
+             (!('userAgent' in data) || data.userAgent == null || (data.userAgent is string && data.userAgent.size() <= 300)) &&
+             (!('customRoleName' in data) || data.customRoleName == null || (data.customRoleName is string && data.customRoleName.size() <= 100)) &&
+             (!('customRoleExpiresAt' in data) || data.customRoleExpiresAt == null || data.customRoleExpiresAt is number) &&
+             (!('customRoleBaseTier' in data) || data.customRoleBaseTier == null || (data.customRoleBaseTier is string && data.customRoleBaseTier.size() <= 30));
+    }
+
+    function isValidCustomRole(data) {
+      return data.name is string && data.name.size() <= 100 &&
+             data.durationDays is number && data.durationDays >= 0 &&
+             data.dailyLimit is number && data.dailyLimit >= 0 &&
+             data.baseTier in ['user', 'premium', 'blocked'] &&
+             data.createdAt is number &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             (!('createdBy' in data) || (data.createdBy is string && data.createdBy.size() <= 100));
+    }
+
+    function isValidPremiumCode(data) {
+      return data.code is string && data.code.size() <= 64 &&
+             data.durationDays is number &&
+             data.maxUses is number &&
+             (!('voucherType' in data) || data.voucherType in ['vip_upgrade', 'quota_boost', 'unlimited_pass']) &&
+             (!('bonusQuota' in data) || data.bonusQuota is number) &&
+             (!('usedCount' in data) || data.usedCount is number) &&
+             (!('isOneTimeUse' in data) || data.isOneTimeUse is bool) &&
+             (!('active' in data) || data.active is bool) &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 300)) &&
+             (!('createdAt' in data) || data.createdAt is number) &&
+             (!('expiresAt' in data) || data.expiresAt == null || data.expiresAt is number) &&
+             (!('redeemedBy' in data) || data.redeemedBy is list);
+    }
+
+    function isValidAdminAuditLog(data) {
+      return data.action is string && data.action.size() <= 100 &&
+             data.adminUsername is string && data.adminUsername.size() <= 100 &&
+             data.timestamp is number &&
+             (!('target' in data) || (data.target is string && data.target.size() <= 200)) &&
+             (!('details' in data) || (data.details is string && data.details.size() <= 1000));
+    }
+
+    function isValidReachEngineSetting(data) {
+      return (!('boostSpeedMode' in data) || data.boostSpeedMode in ['turbo', 'normal', 'eco', 'safe', 'extreme', 'smart_flow']) &&
+             (!('globalCooldownSeconds' in data) || (data.globalCooldownSeconds is number && data.globalCooldownSeconds >= 0)) &&
+             (!('isEmergencyPaused' in data) || data.isEmergencyPaused is bool) &&
+             (!('maintenanceNotice' in data) || (data.maintenanceNotice is string && data.maintenanceNotice.size() <= 500)) &&
+             (!('blacklistChannels' in data) || data.blacklistChannels is list);
+    }
+
+    function isValidAppealRequest(data) {
+      return data.username is string && data.username.size() <= 100 &&
+             data.reason is string && data.reason.size() <= 2000 &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             data.createdAt is number &&
+             (!('updatedAt' in data) || data.updatedAt == null || data.updatedAt is number) &&
+             (!('adminNote' in data) || data.adminNote == null || (data.adminNote is string && data.adminNote.size() <= 1000));
     }
 
     // Health and test connection document
     match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Diagnostic connection tests collection (Used by OwnerPage and connection testers)
+    match /connection_tests/{docId} {
       allow read, write: if true;
     }
 
@@ -51,9 +123,7 @@ service cloud.firestore {
       // Sub-collection for admin audit logs
       match /auditLogs/{logId} {
         allow read: if true;
-        allow create: if request.resource.data.action is string &&
-                         request.resource.data.adminUsername is string &&
-                         request.resource.data.timestamp is number;
+        allow create: if isValidAdminAuditLog(request.resource.data);
         allow update, delete: if false;
       }
     }
@@ -61,18 +131,18 @@ service cloud.firestore {
     // Direct audit logs collection alias
     match /admin_audit_logs/{logId} {
       allow read: if true;
-      allow create: if request.resource.data.action is string &&
-                       request.resource.data.adminUsername is string &&
-                       request.resource.data.timestamp is number;
+      allow create: if isValidAdminAuditLog(request.resource.data);
       allow update, delete: if false;
     }
 
     // Custom Roles management collection (Presets for custom role assignments)
     match /custom_roles/{roleId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isValidCustomRole(request.resource.data);
+      allow delete: if true;
     }
 
-    // User profile documents (protected from arbitrary schema abuse, allow delete for admin management)
+    // User profile documents
     match /users/{userId} {
       allow read: if true;
       allow create, update: if isValidUserProfile(request.resource.data);
@@ -89,10 +159,7 @@ service cloud.firestore {
     // Premium voucher codes
     match /premium_codes/{codeId} {
       allow read: if true;
-      allow create, update: if request.resource.data.code is string && 
-                               request.resource.data.code.size() <= 64 &&
-                               request.resource.data.durationDays is number &&
-                               request.resource.data.maxUses is number;
+      allow create, update: if isValidPremiumCode(request.resource.data);
       allow delete: if true;
     }
 
@@ -117,9 +184,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Diagnostic connection tests collection (Used by OwnerPage connection tester)
-    match /connection_tests/{docId} {
-      allow read, write: if true;
+    // Appeal requests
+    match /appeal_requests/{appealId} {
+      allow read: if true;
+      allow create, update: if isValidAppealRequest(request.resource.data);
+      allow delete: if true;
     }
 
     // Default deny

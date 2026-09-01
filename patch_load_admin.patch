@@ -1,0 +1,34 @@
+--- src/pages/AdminPage.tsx
++++ src/pages/AdminPage.tsx
+@@ -150,7 +150,8 @@
+   });
+-  const [activeTab, setActiveTab] = useState<'analytics' | 'users' | 'codes' | 'audit' | 'engine' | 'logs' | 'broadcast'>('analytics');
++  const [activeTab, setActiveTab] = useState<'analytics' | 'users' | 'codes' | 'audit' | 'engine' | 'logs' | 'broadcast' | 'appeals'>('analytics');
+   const [isLoadingData, setIsLoadingData] = useState(false);
++  const [appeals, setAppeals] = useState<AppealRequest[]>([]);
+ 
+   // Filter & Search in Users tab
+@@ -207,15 +208,16 @@
+       }
+ 
+       // 2. Fetch live metrics directly from Firestore
+-      const [fbStats, fbCodes, fbUsers, fbEngine, fbAnalytics, fbAudits, fbCustomRoles] = await Promise.all([
++      const [fbStats, fbCodes, fbUsers, fbEngine, fbAnalytics, fbAudits, fbCustomRoles, fbAppeals] = await Promise.all([
+         fetchAdminStatsFromFirestore(),
+         fetchAdminCodesFromFirestore(),
+         fetchAdminUsersFromFirestore(),
+         fetchReachEngineSettings(),
+         fetchAdminAnalyticsData(),
+         fetchAdminAuditLogs(),
+         fetchCustomRolesFromFirestore(),
++        fetchAppealRequests(),
+       ]);
+ 
+       if (fbStats) {
+@@ -234,6 +236,7 @@
+       if (fbAnalytics) setAnalyticsData(fbAnalytics);
+       if (fbAudits && fbAudits.length > 0) setAuditLogs(fbAudits);
+       if (fbCustomRoles && fbCustomRoles.length > 0) setCustomRoles(fbCustomRoles);
++      if (fbAppeals) setAppeals(fbAppeals);
+ 
+       // 2. Parallel auxiliary sync from Server API if available

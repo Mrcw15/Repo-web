@@ -8,14 +8,16 @@ import { PremiumPage } from './pages/PremiumPage';
 import { OwnerPage } from './pages/OwnerPage';
 import { AdminPage } from './pages/AdminPage';
 import { AuthPage } from './pages/AuthPage';
+import { AppealPage } from './pages/AppealPage';
 import { 
   getAuthSession, 
   saveAuthSession, 
   clearAuthSession, 
-  type UserProfile 
+  type UserProfile,
+  type UserRole
 } from './utils/storage';
 import { soundFx } from './utils/audio';
-import { subscribeUserProfile } from './services/firebaseService';
+import { subscribeUserProfile, fetchUserProfileFromFirestore } from './services/firebaseService';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('reach');
@@ -32,6 +34,7 @@ export default function App() {
   // Real-time synchronization of user limits, role (VIP), block status from Firestore
   useEffect(() => {
     if (!userProfile?.username) return;
+
     const unsubscribe = subscribeUserProfile(userProfile.username, (firestoreUser) => {
       if (firestoreUser) {
         setUserProfile((prev) => {
@@ -51,6 +54,9 @@ export default function App() {
             isBlocked: isUserBlocked,
             blockedReason: firestoreUser.blockedReason !== undefined ? firestoreUser.blockedReason : prev.blockedReason,
             customDailyLimit: effectiveLimit,
+            customRoleName: firestoreUser.customRoleName !== undefined ? (firestoreUser.customRoleName || undefined) : prev.customRoleName,
+            customRoleExpiresAt: firestoreUser.customRoleExpiresAt !== undefined ? (firestoreUser.customRoleExpiresAt || undefined) : prev.customRoleExpiresAt,
+            customRoleBaseTier: firestoreUser.customRoleBaseTier !== undefined ? (firestoreUser.customRoleBaseTier || undefined) : prev.customRoleBaseTier,
           };
           saveAuthSession(updated);
           return updated;
@@ -131,9 +137,9 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#080b13] text-slate-100 transition-colors duration-300 relative overflow-x-hidden dark">
       {/* Ambient Liquid Glowing Background Blobs */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute -top-[10%] -left-[10%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-br from-emerald-600/15 to-teal-700/5 blur-[120px] animate-blob-1" />
-        <div className="absolute top-[30%] -right-[10%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-br from-cyan-600/15 to-blue-700/5 blur-[130px] animate-blob-2" />
-        <div className="absolute -bottom-[10%] left-[20%] w-[40vw] h-[40vw] rounded-full bg-gradient-to-br from-amber-600/10 to-rose-700/5 blur-[140px] animate-blob-3" />
+        <div className="absolute -top-[10%] -left-[10%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-br from-emerald-600/15 to-teal-700/5  " />
+        <div className="absolute top-[30%] -right-[10%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-br from-cyan-600/15 to-blue-700/5  " />
+        <div className="absolute -bottom-[10%] left-[20%] w-[40vw] h-[40vw] rounded-full bg-gradient-to-br from-amber-600/10 to-rose-700/5  " />
       </div>
 
       {/* Floating Liquid Glass Toasts */}
@@ -181,6 +187,8 @@ export default function App() {
         {currentTab === 'owner' && <OwnerPage onShowToast={showToast} />}
 
         {currentTab === 'admin' && <AdminPage userProfile={userProfile} onShowToast={showToast} />}
+
+        {currentTab === 'appeal' && <AppealPage userProfile={userProfile} onShowToast={showToast} />}
       </main>
 
       {/* Floating Compact Liquid Glass Dock Navigation */}
@@ -189,6 +197,7 @@ export default function App() {
           currentTab={currentTab}
           onTabChange={handleTabChange}
           unreadChatCount={unreadChatCount}
+          userProfile={userProfile}
         />
       </div>
     </div>

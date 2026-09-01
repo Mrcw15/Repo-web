@@ -1,0 +1,39 @@
+--- src/components/FooterNav.tsx
++++ src/components/FooterNav.tsx
+@@ -2,10 +2,12 @@
+-import { Target, MessageSquare, Crown, User } from 'lucide-react';
++import { Target, MessageSquare, Crown, User, AlertOctagon } from 'lucide-react';
+ import { soundFx } from '../utils/audio';
++import type { UserProfile } from '../utils/storage';
+ 
+ interface FooterNavProps {
+   currentTab: string;
+   onTabChange: (tab: string) => void;
+   unreadChatCount?: number;
++  userProfile?: UserProfile;
+ }
+ 
+ export const FooterNav: React.FC<FooterNavProps> = ({
+   currentTab,
+   onTabChange,
+   unreadChatCount = 0,
++  userProfile,
+ }) => {
+   const navItems = [
+     {
+@@ -48,6 +50,18 @@
+     },
+   ];
+ 
++  if (userProfile?.isBlocked || userProfile?.role === 'blocked') {
++    navItems.push({
++      id: 'appeal',
++      label: 'Banding',
++      shortLabel: 'Banding',
++      icon: AlertOctagon,
++      activeColor: 'text-rose-300 font-black',
++      activeBg: 'bg-rose-500/20 border-rose-500/40 shadow-sm',
++    });
++  }
++
+   return (

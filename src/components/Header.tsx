@@ -27,7 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-40 px-2 sm:px-6 pt-2 sm:pt-3 pb-1 transition-all w-full overflow-x-hidden">
       {/* Liquid Glass Floating Header Container */}
-      <div className="max-w-6xl mx-auto liquid-glass-dock rounded-2xl px-2.5 sm:px-5 py-1.5 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-3 bg-slate-900/85 border border-white/10 shadow-xl backdrop-blur-xl">
+      <div className="max-w-6xl mx-auto liquid-glass-dock rounded-2xl px-2.5 sm:px-5 py-1.5 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-3 bg-slate-900/85 border border-white/10 shadow-xl backdrop-blur-sm">
         {/* Brand Logo with Glow Badge */}
         <div 
           onClick={() => {

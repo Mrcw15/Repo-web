@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { soundFx } from '../utils/audio';
 import { testFirestoreWriteConnection } from '../services/firebaseService';
+import { motion } from 'motion/react';
 
 interface OwnerPageProps {
   onShowToast?: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
@@ -104,7 +105,7 @@ export const OwnerPage: React.FC<OwnerPageProps> = ({ onShowToast }) => {
   return (
     <div className="min-h-full pb-28 pt-3 px-3 sm:px-6 max-w-4xl mx-auto space-y-5">
       {/* Developer Profile Liquid Glass Card */}
-      <div className="liquid-glass rounded-3xl p-6 sm:p-8 shadow-xl border border-white/60 dark:border-white/10 relative overflow-hidden">
+      <motion.div className="liquid-glass rounded-3xl p-6 sm:p-8 shadow-xl border border-white/60 dark:border-white/10 relative overflow-hidden" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
         {/* Ambient liquid blur blobs */}
         <div className="absolute -top-12 -right-12 w-48 h-48 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
@@ -195,7 +196,7 @@ export const OwnerPage: React.FC<OwnerPageProps> = ({ onShowToast }) => {
             </div>
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Database Diagnostic & Test Connection Card */}
       <div className="liquid-glass rounded-3xl p-5 sm:p-7 border border-white/60 dark:border-white/10 shadow-lg space-y-4">

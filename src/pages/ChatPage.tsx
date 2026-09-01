@@ -11,6 +11,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { soundFx } from '../utils/audio';
+import { motion } from 'motion/react';
 import { 
   getUserProfile, 
   saveUserProfile, 
@@ -267,7 +268,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   return (
     <div className="min-h-full pb-24 pt-3 px-3 sm:px-6 max-w-4xl mx-auto flex flex-col h-[calc(100vh-135px)]">
       {/* Liquid Glass Header Bar */}
-      <div className="liquid-glass rounded-2xl p-3.5 sm:p-4 mb-3 border border-white/60 dark:border-white/10 shadow-md flex items-center justify-between gap-3">
+      <motion.div className="liquid-glass rounded-2xl p-3.5 sm:p-4 mb-3 border border-white/60 dark:border-white/10 shadow-md flex items-center justify-between gap-3" whileHover={{ scale: 1.01, y: -4, rotateX: 2, rotateY: -2 }} transition={{ type: "spring", stiffness: 300, damping: 20 }}>
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 flex items-center justify-center">
             <Users className="w-4 h-4" />
@@ -322,7 +323,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Edit Nickname Liquid Glass Overlay */}
       {isEditingNick && (

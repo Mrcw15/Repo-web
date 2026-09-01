@@ -160,7 +160,7 @@ export const TopBoosters: React.FC<TopBoostersProps> = ({
               soundFx.playClick();
               onClose();
             }}
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-md"
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm"
           />
 
           {/* Modal / Sidebar Content */}

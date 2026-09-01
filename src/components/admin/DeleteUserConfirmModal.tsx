@@ -48,7 +48,7 @@ export const DeleteUserConfirmModal: React.FC<DeleteUserConfirmModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-in fade-in">
       <div className="relative w-full max-w-md liquid-glass rounded-3xl p-6 border border-rose-500/30 shadow-2xl space-y-4 text-slate-200">
         
         {/* Header */}

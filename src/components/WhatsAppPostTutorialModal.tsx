@@ -29,7 +29,7 @@ export const WhatsAppPostTutorialModal: React.FC<WhatsAppPostTutorialModalProps>
             soundFx.playClick();
             onClose();
           }}
-          className="fixed inset-0 bg-slate-950/85 backdrop-blur-md"
+          className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm"
         />
 
         {/* Modal Dialog */}

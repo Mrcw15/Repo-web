@@ -13,7 +13,8 @@ import {
   limit, 
   addDoc, 
   serverTimestamp,
-  getDocs
+  getDocs,
+  getCountFromServer
 } from 'firebase/firestore';
 import { db, auth, firebaseConfig } from '../lib/firebase';
 import type { UserProfile, UserRole } from '../utils/storage';
@@ -177,6 +178,30 @@ export async function testFirestoreWriteConnection(): Promise<{
       latencyMs,
       error: err?.message || 'Firestore write permission denied or connection timed out',
       projectId: firebaseConfig.projectId,
+    };
+  }
+}
+
+/**
+ * High-precision active database roundtrip latency measurement (Ping in milliseconds)
+ */
+export async function measureFirestorePing(): Promise<{ latencyMs: number; status: 'fast' | 'moderate' | 'slow'; timestamp: number }> {
+  const startTime = performance.now();
+  try {
+    // Perform lightweight read to test connection
+    await getDoc(doc(db, 'system_configs', 'reach_engine'));
+    const latencyMs = Math.max(1, Math.round(performance.now() - startTime));
+    return {
+      latencyMs,
+      status: latencyMs < 80 ? 'fast' : latencyMs < 250 ? 'moderate' : 'slow',
+      timestamp: Date.now(),
+    };
+  } catch {
+    const latencyMs = Math.max(1, Math.round(performance.now() - startTime));
+    return {
+      latencyMs,
+      status: latencyMs < 200 ? 'moderate' : 'slow',
+      timestamp: Date.now(),
     };
   }
 }
@@ -385,7 +410,7 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Records a successful or completed reach boost for a user in Firestore.
+ * Records a successful or completed reach boost for a user in Firestore with ultra-low latency concurrent writes.
  */
 export async function recordBoostInFirebase(
   username: string,
@@ -400,41 +425,37 @@ export async function recordBoostInFirebase(
   const userKey = safeUsername.toLowerCase();
 
   try {
-    // 1. Add log to reach_logs collection
-    await addDoc(collection(db, 'reach_logs'), {
-      username: safeUsername,
-      channel,
-      status,
-      message,
-      emojis: emojis.slice(0, 4),
-      timestamp: Date.now(),
-      serverCreatedAt: serverTimestamp(),
-    });
+    const tasks: Promise<any>[] = [
+      addDoc(collection(db, 'reach_logs'), {
+        username: safeUsername,
+        channel,
+        status,
+        message,
+        emojis: emojis.slice(0, 4),
+        timestamp: Date.now(),
+        serverCreatedAt: serverTimestamp(),
+      }),
+    ];
 
-    // 2. Increment totalBoosts for this user
     if (status === 'success') {
       const userRef = doc(db, 'users', userKey);
-      const userSnap = await getDoc(userRef);
-
-      if (userSnap.exists()) {
-        await updateDoc(userRef, {
-          totalBoosts: increment(1),
-          lastActive: Date.now(),
-          role,
-          avatarColor,
-        });
-      } else {
-        await setDoc(userRef, {
-          username: safeUsername,
-          nickname: safeUsername,
-          role,
-          avatarColor,
-          totalBoosts: 1,
-          createdAt: Date.now(),
-          lastActive: Date.now(),
-        });
-      }
+      tasks.push(
+        setDoc(
+          userRef,
+          {
+            username: safeUsername,
+            nickname: safeUsername,
+            role,
+            avatarColor,
+            totalBoosts: increment(1),
+            lastActive: Date.now(),
+          },
+          { merge: true }
+        )
+      );
     }
+
+    await Promise.all(tasks);
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, 'reach_logs');
   }
@@ -506,7 +527,7 @@ export async function sendChatMessageToFirebase(msg: Omit<FirebaseChatMessage, '
 }
 
 /**
- * Synchronizes user profile state to Firestore.
+ * Synchronizes user profile state to Firestore without overwriting authoritative cloud roles.
  */
 export async function syncUserProfileToFirebase(profile: UserProfile, extra?: { password?: string }): Promise<void> {
   if (!profile.username) return;
@@ -525,24 +546,21 @@ export async function syncUserProfileToFirebase(profile: UserProfile, extra?: { 
         premiumExpiresAt: profile.premiumExpiresAt || null,
         isBlocked: profile.isBlocked || false,
         blockedReason: profile.blockedReason || '',
-        customDailyLimit: profile.customDailyLimit || null,
+        customDailyLimit: profile.customDailyLimit || (profile.role === 'premium' ? 9999 : 10),
         createdAt: Date.now(),
         lastActive: Date.now(),
         totalBoosts: 0,
         password: extra?.password || '******',
       });
     } else {
+      const existingData = snap.data();
+      // Keep Firestore as authoritative for role, isBlocked, blockedReason, customDailyLimit, customRole
       await setDoc(
         userRef,
         {
           username: profile.username,
-          nickname: profile.nickname || profile.username,
-          role: profile.role,
-          avatarColor: profile.avatarColor,
-          premiumExpiresAt: profile.premiumExpiresAt || null,
-          isBlocked: profile.isBlocked || false,
-          blockedReason: profile.blockedReason || '',
-          customDailyLimit: profile.customDailyLimit || null,
+          nickname: profile.nickname || existingData.nickname || profile.username,
+          avatarColor: profile.avatarColor || existingData.avatarColor || '#10B981',
           lastActive: Date.now(),
           ...(extra?.password ? { password: extra.password } : {}),
         },
@@ -552,6 +570,53 @@ export async function syncUserProfileToFirebase(profile: UserProfile, extra?: { 
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
+}
+
+/**
+ * Fetches a single authoritative user profile from Firestore.
+ */
+export async function fetchUserProfileFromFirestore(username: string): Promise<Partial<UserProfile> | null> {
+  if (!username) return null;
+  const userKey = username.trim().toLowerCase();
+  const path = `users/${userKey}`;
+
+  try {
+    const userRef = doc(db, 'users', userKey);
+    const docSnap = await getDoc(userRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      const isCustomRoleExpired = data.customRoleExpiresAt && Date.now() > Number(data.customRoleExpiresAt);
+      const isUserBlocked = data.role === 'blocked' || !!data.isBlocked || data.customRoleBaseTier === 'blocked' || data.customDailyLimit === 0;
+
+      let assignedRole: UserRole = isUserBlocked ? 'blocked' : ((data.role as UserRole) || 'free');
+      if (!isUserBlocked && assignedRole === 'premium' && data.premiumExpiresAt && Date.now() > Number(data.premiumExpiresAt)) {
+        assignedRole = 'free';
+      }
+
+      const limit = isUserBlocked
+        ? 0
+        : (typeof data.customDailyLimit === 'number'
+            ? (isCustomRoleExpired ? 10 : data.customDailyLimit)
+            : (assignedRole === 'premium' ? 9999 : 10));
+
+      return {
+        username: data.username || username,
+        nickname: data.nickname || data.username || username,
+        role: assignedRole,
+        avatarColor: data.avatarColor || '#10B981',
+        premiumExpiresAt: data.premiumExpiresAt || undefined,
+        isBlocked: isUserBlocked,
+        blockedReason: data.blockedReason || (isUserBlocked ? 'Diblokir oleh Administrator' : undefined),
+        customDailyLimit: limit,
+        customRoleName: !isCustomRoleExpired ? (data.customRoleName || undefined) : undefined,
+        customRoleExpiresAt: !isCustomRoleExpired ? (data.customRoleExpiresAt || undefined) : undefined,
+        customRoleBaseTier: !isCustomRoleExpired ? (data.customRoleBaseTier || undefined) : undefined,
+      };
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+  }
+  return null;
 }
 
 /**
@@ -573,11 +638,19 @@ export function subscribeUserProfile(
       (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          const isUserBlocked = data.role === 'blocked' || !!data.isBlocked || data.customDailyLimit === 0;
-          const assignedRole: UserRole = isUserBlocked ? 'blocked' : ((data.role as UserRole) || 'free');
+          const isCustomRoleExpired = data.customRoleExpiresAt && Date.now() > Number(data.customRoleExpiresAt);
+          const isUserBlocked = data.role === 'blocked' || !!data.isBlocked || data.customRoleBaseTier === 'blocked' || data.customDailyLimit === 0;
+          
+          let assignedRole: UserRole = isUserBlocked ? 'blocked' : ((data.role as UserRole) || 'free');
+          if (!isUserBlocked && assignedRole === 'premium' && data.premiumExpiresAt && Date.now() > Number(data.premiumExpiresAt)) {
+            assignedRole = 'free';
+          }
+
           const limit = isUserBlocked 
             ? 0 
-            : (typeof data.customDailyLimit === 'number' ? data.customDailyLimit : (assignedRole === 'premium' ? 9999 : 10));
+            : (typeof data.customDailyLimit === 'number' 
+                ? (isCustomRoleExpired ? 10 : data.customDailyLimit) 
+                : (assignedRole === 'premium' ? 9999 : 10));
 
           callback({
             username: data.username || username,
@@ -588,6 +661,9 @@ export function subscribeUserProfile(
             isBlocked: isUserBlocked,
             blockedReason: data.blockedReason || (isUserBlocked ? 'Diblokir oleh Administrator' : undefined),
             customDailyLimit: limit,
+            customRoleName: !isCustomRoleExpired ? (data.customRoleName || undefined) : undefined,
+            customRoleExpiresAt: !isCustomRoleExpired ? (data.customRoleExpiresAt || undefined) : undefined,
+            customRoleBaseTier: !isCustomRoleExpired ? (data.customRoleBaseTier || undefined) : undefined,
           });
         }
       },
@@ -716,10 +792,11 @@ export interface ReachLogRecord {
  */
 export async function fetchAdminStatsFromFirestore(): Promise<AdminStatsData> {
   try {
-    const [usersSnap, codesSnap, logsSnap] = await Promise.all([
-      getDocs(collection(db, 'users')),
+    const [usersCountSnap, codesSnap, logsSnap, usersSnap] = await Promise.all([
+      getCountFromServer(collection(db, 'users')),
       getDocs(collection(db, 'premium_codes')),
       getDocs(query(collection(db, 'reach_logs'), limit(500))),
+      getDocs(query(collection(db, 'users'), limit(500))), // Limit for calculating specific blocked count
     ]);
 
     let totalBoosts = 0;
@@ -743,7 +820,7 @@ export async function fetchAdminStatsFromFirestore(): Promise<AdminStatsData> {
 
     return {
       totalBoosts: Math.max(totalBoosts, logsSnap.size),
-      totalUsers: Math.max(usersSnap.size, 1),
+      totalUsers: Math.max(usersCountSnap.data().count, 1),
       blockedUsers,
       activeCodes: Math.max(activeCodes, 1),
       totalCodes: Math.max(codesSnap.size, 1),
@@ -913,10 +990,20 @@ export async function fetchAdminUsersFromFirestore(): Promise<AdminUserRecord[]>
     if (!snap.empty) {
       return snap.docs.map((d) => {
         const data = d.data();
-        let role = (data.role as UserRole) || 'free';
-        if (data.isBlocked) {
-          role = 'blocked';
+        const isCustomRoleExpired = data.customRoleExpiresAt && Date.now() > Number(data.customRoleExpiresAt);
+        const isUserBlocked = data.role === 'blocked' || !!data.isBlocked || data.customRoleBaseTier === 'blocked' || data.customDailyLimit === 0;
+        
+        let role: UserRole = isUserBlocked ? 'blocked' : ((data.role as UserRole) || 'free');
+        if (!isUserBlocked && role === 'premium' && data.premiumExpiresAt && Date.now() > Number(data.premiumExpiresAt)) {
+          role = 'free';
         }
+
+        const limit = isUserBlocked
+          ? 0
+          : (typeof data.customDailyLimit === 'number'
+              ? (isCustomRoleExpired ? 10 : data.customDailyLimit)
+              : (role === 'premium' ? 9999 : 10));
+
         return {
           username: data.username || d.id,
           nickname: data.nickname || data.username || d.id,
@@ -925,16 +1012,16 @@ export async function fetchAdminUsersFromFirestore(): Promise<AdminUserRecord[]>
           totalBoosts: typeof data.totalBoosts === 'number' ? data.totalBoosts : 0,
           createdAt: data.createdAt || Date.now(),
           lastActive: data.lastActive || data.createdAt || Date.now(),
-          isBlocked: !!data.isBlocked || role === 'blocked',
-          blockedReason: data.blockedReason || '',
-          customDailyLimit: data.customDailyLimit,
+          isBlocked: isUserBlocked,
+          blockedReason: data.blockedReason || (isUserBlocked ? 'Diblokir oleh Administrator' : ''),
+          customDailyLimit: limit,
           premiumExpiresAt: data.premiumExpiresAt,
           password: data.password || data.passwordHash || '******',
           ipAddress: data.ipAddress || '127.0.0.1',
           userAgent: data.userAgent || 'Web Browser',
-          customRoleName: data.customRoleName,
-          customRoleExpiresAt: data.customRoleExpiresAt,
-          customRoleBaseTier: data.customRoleBaseTier,
+          customRoleName: !isCustomRoleExpired ? data.customRoleName : undefined,
+          customRoleExpiresAt: !isCustomRoleExpired ? data.customRoleExpiresAt : undefined,
+          customRoleBaseTier: !isCustomRoleExpired ? data.customRoleBaseTier : undefined,
         };
       });
     }
@@ -942,6 +1029,68 @@ export async function fetchAdminUsersFromFirestore(): Promise<AdminUserRecord[]>
     handleFirestoreError(err, OperationType.LIST, 'users');
   }
   return [];
+}
+
+/**
+ * Real-time subscription to the entire users list in Firestore for Admin panel
+ */
+export function subscribeAdminUsers(
+  callback: (users: AdminUserRecord[]) => void
+): () => void {
+  try {
+    const q = query(collection(db, 'users'), limit(200));
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        if (!snap.empty) {
+          const userList: AdminUserRecord[] = snap.docs.map((d) => {
+            const data = d.data();
+            const isCustomRoleExpired = data.customRoleExpiresAt && Date.now() > Number(data.customRoleExpiresAt);
+            const isUserBlocked = data.role === 'blocked' || !!data.isBlocked || data.customRoleBaseTier === 'blocked' || data.customDailyLimit === 0;
+
+            let role: UserRole = isUserBlocked ? 'blocked' : ((data.role as UserRole) || 'free');
+            if (!isUserBlocked && role === 'premium' && data.premiumExpiresAt && Date.now() > Number(data.premiumExpiresAt)) {
+              role = 'free';
+            }
+
+            const limit = isUserBlocked
+              ? 0
+              : (typeof data.customDailyLimit === 'number'
+                  ? (isCustomRoleExpired ? 10 : data.customDailyLimit)
+                  : (role === 'premium' ? 9999 : 10));
+
+            return {
+              username: data.username || d.id,
+              nickname: data.nickname || data.username || d.id,
+              role,
+              avatarColor: data.avatarColor || '#10B981',
+              totalBoosts: typeof data.totalBoosts === 'number' ? data.totalBoosts : 0,
+              createdAt: data.createdAt || Date.now(),
+              lastActive: data.lastActive || data.createdAt || Date.now(),
+              isBlocked: isUserBlocked,
+              blockedReason: data.blockedReason || (isUserBlocked ? 'Diblokir oleh Administrator' : ''),
+              customDailyLimit: limit,
+              premiumExpiresAt: data.premiumExpiresAt,
+              password: data.password || data.passwordHash || '******',
+              ipAddress: data.ipAddress || '127.0.0.1',
+              userAgent: data.userAgent || 'Web Browser',
+              customRoleName: !isCustomRoleExpired ? data.customRoleName : undefined,
+              customRoleExpiresAt: !isCustomRoleExpired ? data.customRoleExpiresAt : undefined,
+              customRoleBaseTier: !isCustomRoleExpired ? data.customRoleBaseTier : undefined,
+            };
+          });
+          callback(userList);
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users');
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, 'users');
+    return () => {};
+  }
 }
 
 /**
@@ -1030,27 +1179,27 @@ export async function setUserRoleInFirestore(
     blockedReason?: string;
     durationDays?: number;
     customDailyLimit?: number | null;
-    customRoleName?: string;
-    customRoleBaseTier?: 'user' | 'premium' | 'blocked';
+    customRoleName?: string | null;
+    customRoleBaseTier?: 'user' | 'premium' | 'blocked' | null;
     customRoleExpiresAt?: number | null;
   }
 ): Promise<boolean> {
   const userKey = username.trim().toLowerCase();
   const isBlocked = targetRole === 'blocked' || options?.customRoleBaseTier === 'blocked';
-  const limit = isBlocked ? 0 : options?.customDailyLimit !== undefined ? options.customDailyLimit : (targetRole === 'premium' ? 9999 : 10);
+  const limit = isBlocked ? 0 : (options?.customDailyLimit !== undefined && options.customDailyLimit !== null) ? options.customDailyLimit : (targetRole === 'premium' ? 9999 : 10);
   const duration = options?.durationDays || 30;
   const premiumExpiresAt = targetRole === 'premium' ? Date.now() + duration * 86400000 : null;
-  const customRoleExpiresAt = options?.customRoleName ? Date.now() + duration * 86400000 : null;
+  const customRoleExpiresAt = options?.customRoleName ? (options?.customRoleExpiresAt || Date.now() + duration * 86400000) : null;
 
   return updateUserInFirestore(userKey, {
     role: targetRole,
     isBlocked,
     blockedReason: isBlocked ? (options?.blockedReason || (options?.customRoleName ? `Custom Role ${options.customRoleName}` : 'Diblokir oleh Administrator')) : '',
     customDailyLimit: limit,
-    premiumExpiresAt: premiumExpiresAt ?? undefined,
-    customRoleName: options?.customRoleName || undefined,
-    customRoleBaseTier: options?.customRoleBaseTier || undefined,
-    customRoleExpiresAt: customRoleExpiresAt ?? undefined,
+    premiumExpiresAt: targetRole === 'premium' ? premiumExpiresAt : null,
+    customRoleName: options?.customRoleName || null,
+    customRoleBaseTier: options?.customRoleBaseTier || null,
+    customRoleExpiresAt: options?.customRoleName ? customRoleExpiresAt : null,
   });
 }
 
@@ -1062,38 +1211,51 @@ export async function updateUserInFirestore(
   updates: {
     customDailyLimit?: number | null;
     isBlocked?: boolean;
-    blockedReason?: string;
+    blockedReason?: string | null;
     role?: UserRole;
     totalBoosts?: number;
     lastActive?: number;
-    premiumExpiresAt?: number;
-    password?: string;
-    ipAddress?: string;
-    userAgent?: string;
-    customRoleName?: string;
-    customRoleExpiresAt?: number;
-    customRoleBaseTier?: 'user' | 'premium' | 'blocked';
+    premiumExpiresAt?: number | null;
+    password?: string | null;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+    customRoleName?: string | null;
+    customRoleExpiresAt?: number | null;
+    customRoleBaseTier?: 'user' | 'premium' | 'blocked' | null;
+    nickname?: string | null;
+    avatarColor?: string | null;
   }
 ): Promise<boolean> {
   const userKey = username.trim().toLowerCase();
   try {
     const userRef = doc(db, 'users', userKey);
     const snap = await getDoc(userRef);
+
+    // Build clean payload without any `undefined` keys
+    const payload: Record<string, any> = {
+      lastActive: Date.now(),
+    };
+
+    for (const [k, v] of Object.entries(updates)) {
+      if (v !== undefined) {
+        payload[k] = v;
+      }
+    }
+
     if (snap.exists()) {
-      await updateDoc(userRef, {
-        ...updates,
-        lastActive: Date.now(),
-      });
+      await updateDoc(userRef, payload);
     } else {
       await setDoc(userRef, {
-        username,
-        nickname: username,
+        username: username.trim(),
+        nickname: updates.nickname || username.trim(),
         role: updates.role || 'free',
-        avatarColor: '#10B981',
+        avatarColor: updates.avatarColor || '#10B981',
         totalBoosts: updates.totalBoosts || 0,
         createdAt: Date.now(),
-        lastActive: Date.now(),
-        ...updates,
+        isBlocked: updates.isBlocked || false,
+        blockedReason: updates.blockedReason || '',
+        customDailyLimit: updates.customDailyLimit !== undefined ? updates.customDailyLimit : (updates.role === 'premium' ? 9999 : 10),
+        ...payload,
       });
     }
     return true;
@@ -1643,3 +1805,58 @@ export async function saveReachEngineSettings(settings: Partial<ReachEngineSetti
   }
 }
 
+
+export interface AppealRequest {
+  id: string;
+  username: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+  updatedAt?: number;
+  adminNote?: string;
+}
+
+export async function submitAppealRequest(username: string, reason: string): Promise<boolean> {
+  const path = 'appeal_requests';
+  try {
+    const payload = {
+      username: username.toLowerCase().trim(),
+      reason,
+      status: 'pending',
+      createdAt: Date.now(),
+    };
+    await addDoc(collection(db, path), payload);
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    return false;
+  }
+}
+
+export async function fetchAppealRequests(): Promise<AppealRequest[]> {
+  const path = 'appeal_requests';
+  try {
+    const q = query(collection(db, path), orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppealRequest));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, path);
+    return [];
+  }
+}
+
+export async function resolveAppealRequest(id: string, status: 'approved' | 'rejected', adminNote?: string): Promise<boolean> {
+  const path = `appeal_requests/${id}`;
+  try {
+    const ref = doc(db, 'appeal_requests', id);
+    await updateDoc(ref, {
+      status,
+      adminNote: adminNote || '',
+      updatedAt: Date.now()
+    });
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    return false;
+  }
+}

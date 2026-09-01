@@ -65,7 +65,7 @@ export const UserInfoModal: React.FC<UserInfoModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-in fade-in">
       <div className="relative w-full max-w-lg liquid-glass rounded-3xl p-6 border border-white/15 shadow-2xl space-y-5 text-slate-200">
         
         {/* Header */}
